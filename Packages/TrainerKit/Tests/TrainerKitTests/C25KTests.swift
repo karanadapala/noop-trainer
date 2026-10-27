@@ -112,3 +112,39 @@ final class HeartRateGuardTests: XCTestCase {
                                           secondsSinceLastCorrection: nil))
     }
 }
+
+final class RestDayTests: XCTestCase {
+    var calendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "America/New_York")!
+        return c
+    }()
+
+    func date(_ day: Int, _ hour: Int) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour))!
+    }
+
+    func testRhythmFollowsTheLastRun() {
+        XCTAssertEqual(TrainingDay.on(date(27, 9), lastRun: nil, calendar: calendar), .runDay)
+        // Ran Sunday the 26th at 7 am: Monday is a rest day, the next run is due Tuesday.
+        XCTAssertEqual(TrainingDay.on(date(27, 9), lastRun: date(26, 7), calendar: calendar),
+                       .restDay(nextRunFrom: calendar.startOfDay(for: date(28, 0))))
+        XCTAssertEqual(TrainingDay.on(date(26, 21), lastRun: date(26, 7), calendar: calendar),
+                       .ranToday(nextRunFrom: calendar.startOfDay(for: date(28, 0))))
+        XCTAssertEqual(TrainingDay.on(date(29, 6), lastRun: date(26, 7), calendar: calendar), .runDay)
+        // A late-evening run still makes the next calendar day a rest day.
+        XCTAssertEqual(TrainingDay.on(date(27, 6), lastRun: date(26, 23), calendar: calendar),
+                       .restDay(nextRunFrom: calendar.startOfDay(for: date(28, 0))))
+    }
+
+    func testAdviceBands() {
+        XCTAssertEqual(RestAdvice.forCharge(20).band, .low)
+        XCTAssertEqual(RestAdvice.forCharge(33.9).band, .low)
+        XCTAssertEqual(RestAdvice.forCharge(34).band, .moderate)
+        XCTAssertEqual(RestAdvice.forCharge(67).band, .high)
+        XCTAssertEqual(RestAdvice.forCharge(nil).band, .unknown)
+        XCTAssertNotNil(RestAdvice.runDayNote(forCharge: 25))
+        XCTAssertNil(RestAdvice.runDayNote(forCharge: 50))
+        XCTAssertNil(RestAdvice.runDayNote(forCharge: nil))
+    }
+}

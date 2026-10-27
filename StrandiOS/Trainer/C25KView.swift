@@ -2,11 +2,13 @@ import SwiftUI
 import StrandDesign
 import TrainerKit
 
-/// Voice-guided Couch to 5K (NOOP Trainer, Sprint 0). Pick a day, press Start, put the phone away:
-/// every segment change, countdown and heart-rate correction is spoken over your music.
+/// Voice-guided Couch to 5K (NOOP Trainer). The screen answers one question: what is today, a run or
+/// a rest? The session card leads with the run drawn to scale; on the day after a run a rest card comes
+/// first, with advice from the morning Charge score. The plan ladder below shows all 27 sessions.
 struct C25KView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
+    @EnvironmentObject private var repo: Repository
     @ObservedObject private var runner = C25KRunner.shared
 
     @State private var week = 1
@@ -16,30 +18,33 @@ struct C25KView: View {
     @State private var linking: GuidedSession?
 
     private var picked: GuidedSession? { C25K.session(week: week, day: day) }
+    private var isPickedNext: Bool { week == runner.nextSession.week && day == runner.nextSession.day }
+    private var charge: Double? { repo.today?.recovery }
+
+    private var lastRun: Date? {
+        runner.log.values.map(\.date).max()
+    }
+
+    private var today: TrainingDay { TrainingDay.on(Date(), lastRun: lastRun) }
 
     var body: some View {
-        ScreenScaffold(title: "C25K Coach",
-                       subtitle: "Voice-guided Couch to 5K. Start, lock the phone, and listen.") {
+        ScreenScaffold(title: "C25K Coach", subtitle: "Couch to 5K in nine weeks, coached by voice.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 statusRow
                 switch runner.state {
-                case .running, .paused: activeCard
-                case .finished: finishedCard
-                case .idle: EmptyView()
-                }
-                if runner.state == .idle || runner.state == .finished {
-                    programCard
-                    pickerCard
+                case .running, .paused:
+                    activeCard
+                case .finished:
+                    finishedCard
+                    planCard
+                case .idle:
+                    if isPickedNext { todayCard }
+                    sessionCard
                     planCard
                 }
             }
         }
-        .onAppear {
-            if runner.state == .idle {
-                week = runner.nextSession.week
-                day = runner.nextSession.day
-            }
-        }
+        .onAppear { if runner.state == .idle { selectNext() } }
         .confirmationDialog("Stop this workout?", isPresented: $confirmStop, titleVisibility: .visible) {
             Button("Stop and save", role: .destructive) { runner.stop() }
             Button("Keep going", role: .cancel) {}
@@ -60,15 +65,241 @@ struct C25KView: View {
     // MARK: Status
 
     private var statusRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             if live.bonded {
                 StatePill("Strap connected", tone: .positive)
             } else {
-                StatePill("No strap: voice cues only", tone: .warning)
+                StatePill("No strap: voice only", tone: .warning)
             }
-            Spacer()
             if !VoiceCoach.hasHighQualityVoice {
                 StatePill("Basic voice", tone: .neutral, showsDot: false)
+            }
+        }
+    }
+
+    // MARK: Today (rest day, or done for today)
+
+    @ViewBuilder
+    private var todayCard: some View {
+        switch today {
+        case .runDay:
+            EmptyView()
+        case .restDay(let from):
+            restCard(title: "Rest day", reason: "You ran yesterday. Your next run is \(Self.dayPhrase(from)).")
+        case .ranToday(let from):
+            restCard(title: "Done for today", reason: "Nice work. Rest tomorrow; your next run is \(Self.dayPhrase(from)).")
+        }
+    }
+
+    private func restCard(title: String, reason: String) -> some View {
+        let advice = RestAdvice.forCharge(charge)
+        return StrandCard(padding: 20, tint: StrandPalette.restColor) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center) {
+                    overline("Today", color: StrandPalette.restColor)
+                    Spacer()
+                    if let charge { chargeChip(charge) }
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(StrandFont.rounded(30))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text(reason)
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                Divider().overlay(StrandPalette.hairline)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(advice.headline)
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text(advice.detail)
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func chargeChip(_ score: Double) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(StrandPalette.recoveryColor(score)).frame(width: 8, height: 8)
+            Text("Charge \(Int(score.rounded()))")
+                .font(StrandFont.captionNumber)
+                .foregroundStyle(StrandPalette.textPrimary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Capsule().fill(StrandPalette.surfaceInset))
+        .accessibilityLabel("Charge \(Int(score.rounded())), \(StrandPalette.recoveryState(score).lowercased())")
+    }
+
+    // MARK: Session
+
+    private var sessionCard: some View {
+        StrandCard(padding: 20, tint: isPickedNext && today == .runDay ? StrandPalette.effortColor : nil) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .center) {
+                    overline(sessionEyebrow, color: isPickedNext ? StrandPalette.effortColor : StrandPalette.textTertiary)
+                    Spacer()
+                    sessionMenu
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Week \(week) · Day \(day)")
+                        .font(StrandFont.rounded(30))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    if let picked {
+                        Text(Self.shape(of: picked))
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                }
+
+                if let picked {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SessionStrip(session: picked)
+                        HStack(spacing: 14) {
+                            legend("Run", StrandPalette.effortColor)
+                            legend("Walk", StrandPalette.restColor)
+                            Spacer()
+                            Text("5 min warm-up and cool-down")
+                                .font(StrandFont.caption)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                        }
+                    }
+                }
+
+                dayChips
+
+                if let picked, let entry = runner.logEntry(picked) {
+                    Label(C25KLinkSheet.summary(start: entry.startTs, durationS: entry.durationS,
+                                                avgHr: entry.avgHr, distanceM: entry.distanceM),
+                          systemImage: "checkmark.circle.fill")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.accent)
+                } else if let picked, runner.isCompleted(picked) {
+                    Label("Marked as done", systemImage: "checkmark.circle.fill")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.accent)
+                }
+
+                if isPickedNext, today == .runDay, let note = RestAdvice.runDayNote(forCharge: charge) {
+                    Label(note, systemImage: "battery.25percent")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.statusWarning)
+                }
+
+                VStack(spacing: 10) {
+                    NoopButton(startTitle, systemImage: "figure.run",
+                               kind: pickedDone ? .secondary : .primary, fullWidth: true) {
+                        guard let picked else { return }
+                        if !runner.start(picked, model: model) { blockedByWorkout = true }
+                    }
+                    Text("Saved as a Running workout with heart rate and route. Your music keeps playing and dips for each cue.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var sessionEyebrow: String {
+        if pickedDone { return "Done" }
+        guard isPickedNext else { return "From the plan" }
+        return today == .runDay ? "Today's run" : "Next run"
+    }
+
+    private var pickedDone: Bool { picked.map(runner.isCompleted) ?? false }
+
+    private var startTitle: LocalizedStringKey {
+        pickedDone ? "Run it again" : "Start week \(week), day \(day)"
+    }
+
+    private var dayChips: some View {
+        HStack(spacing: 8) {
+            ForEach(1...C25K.daysPerWeek, id: \.self) { d in
+                let s = C25K.session(week: week, day: d)
+                let done = s.map(runner.isCompleted) ?? false
+                let selected = d == day
+                Button { day = d } label: {
+                    HStack(spacing: 5) {
+                        if done { Image(systemName: "checkmark").font(StrandFont.caption.weight(.bold)) }
+                        Text("Day \(d)").font(StrandFont.subhead.weight(.semibold))
+                    }
+                    .foregroundStyle(selected ? StrandPalette.textPrimary : StrandPalette.textSecondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(selected ? StrandPalette.surfaceOverlay : StrandPalette.surfaceInset))
+                    .overlay(Capsule().stroke(selected ? StrandPalette.hairlineStrong : .clear, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Day \(d)\(done ? ", done" : "")")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+            Spacer()
+            if !isPickedNext {
+                Button("Next run") { selectNext() }
+                    .font(StrandFont.subhead.weight(.semibold))
+                    .foregroundStyle(StrandPalette.accent)
+            }
+        }
+    }
+
+    private var sessionMenu: some View {
+        Menu {
+            if let picked {
+                if runner.logEntry(picked) == nil {
+                    Button { linking = picked } label: { Label("Link a past workout…", systemImage: "link") }
+                }
+                if runner.isCompleted(picked) {
+                    Button { runner.setCompleted(picked, false) } label: { Label("Mark as not done", systemImage: "arrow.uturn.backward") }
+                } else {
+                    Button { runner.setCompleted(picked, true) } label: { Label("Mark as done", systemImage: "checkmark") }
+                }
+            }
+            Divider()
+            Button {
+                if !runner.start(C25K.rehearsal, model: model) { blockedByWorkout = true }
+            } label: { Label("Play a 2-minute test", systemImage: "speaker.wave.2") }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .frame(width: 36, height: 28)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("More options")
+    }
+
+    // MARK: Plan
+
+    private var doneCount: Int { C25K.all.filter(runner.isCompleted).count }
+
+    private var planCard: some View {
+        StrandCard(padding: 20) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("The plan")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Spacer()
+                    Text("\(doneCount) of \(C25K.all.count) runs")
+                        .font(StrandFont.subhead.monospacedDigit())
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                PlanLadder(isDone: runner.isCompleted, next: runner.nextSession, selectedWeek: week) { w in
+                    week = w
+                    day = (1...C25K.daysPerWeek).first { d in
+                        C25K.session(week: w, day: d).map { !runner.isCompleted($0) } ?? false
+                    } ?? 1
+                }
+                Text(Self.climbLine(next: runner.nextSession))
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -77,11 +308,9 @@ struct C25KView: View {
 
     private var activeCard: some View {
         StrandCard(padding: 24, tint: segmentColor) {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 HStack {
-                    Text(segmentTitle)
-                        .font(StrandFont.title1)
-                        .foregroundStyle(segmentColor)
+                    overline(segmentEyebrow, color: segmentColor)
                     Spacer()
                     if let s = runner.session, s.week > 0 {
                         Text("Week \(s.week) · Day \(s.day)")
@@ -90,28 +319,29 @@ struct C25KView: View {
                     }
                 }
 
-                Text(clock(runner.segmentRemaining))
-                    .font(StrandFont.display(84))
-                    .monospacedDigit()
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                VStack(spacing: 2) {
+                    Text(clock(runner.segmentRemaining))
+                        .font(StrandFont.display(88))
+                        .tracking(StrandFont.displayTracking(88))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    if let next = runner.nextSegment {
+                        Text("then \(C25KRunner.verb(next.kind).lowercased()) \(CueTimeline.spokenDuration(next.seconds))")
+                            .font(StrandFont.body)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                    }
+                }
+                .frame(maxWidth: .infinity)
 
-                if let next = runner.nextSegment {
-                    Text("Next: \(C25KRunner.verb(next.kind)) \(CueTimeline.spokenDuration(next.seconds))")
-                        .font(StrandFont.body)
-                        .foregroundStyle(StrandPalette.textSecondary)
+                if let s = runner.session {
+                    SessionStrip(session: s, elapsed: runner.elapsed, height: 30)
                 }
 
-                ProgressView(value: min(runner.elapsed, Double(runner.session?.totalSeconds ?? 1)),
-                             total: Double(runner.session?.totalSeconds ?? 1))
-                    .tint(segmentColor)
-
                 HStack {
+                    metric("Heart rate", model.bpm.map { "\($0)" } ?? "--", unit: "bpm", dot: zoneColor)
+                    Spacer()
                     metric("Elapsed", clock(runner.elapsed))
                     Spacer()
-                    metric("Heart rate", model.bpm.map { "\($0) bpm" } ?? "--")
-                    Spacer()
-                    metric("Zone", zoneLabel)
+                    metric("Left", clock(Double(runner.session?.totalSeconds ?? 0) - runner.elapsed))
                 }
 
                 if let said = runner.lastSpoken {
@@ -134,158 +364,24 @@ struct C25KView: View {
     }
 
     private var finishedCard: some View {
-        StrandCard(padding: 20) {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("Session complete", systemImage: "checkmark.seal.fill")
-                    .font(StrandFont.title2)
-                    .foregroundStyle(StrandPalette.statusPositive)
+        StrandCard(padding: 20, tint: StrandPalette.accent) {
+            VStack(alignment: .leading, spacing: 12) {
+                overline("Session complete", color: StrandPalette.accent)
                 if let s = runner.session, s.week > 0 {
-                    Text("Week \(s.week), day \(s.day) is done and saved in Workouts.")
+                    Text("Week \(s.week) · Day \(s.day) done")
+                        .font(StrandFont.rounded(30))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("Saved in Workouts. Tomorrow is a rest day.")
                         .font(StrandFont.body)
                         .foregroundStyle(StrandPalette.textSecondary)
-                }
-                NoopButton("Done", kind: .secondary) {
-                    runner.dismissFinished()
-                    week = runner.nextSession.week
-                    day = runner.nextSession.day
-                }
-            }
-        }
-    }
-
-    // MARK: Whole-program progress
-
-    private var doneCount: Int { C25K.all.filter { runner.isCompleted($0) }.count }
-
-    private var programCard: some View {
-        StrandCard(padding: 20) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Week \(runner.nextSession.week) of \(C25K.weeks)")
-                        .font(StrandFont.title2)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    Text("\(doneCount) of \(C25K.all.count) runs")
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-                ProgressView(value: Double(doneCount), total: Double(C25K.all.count))
-                    .tint(StrandPalette.statusPositive)
-                // One row per week, three dots per row: done / next up / selected / still to come.
-                VStack(spacing: 8) {
-                    ForEach(1...C25K.weeks, id: \.self) { w in
-                        HStack(spacing: 10) {
-                            Text("W\(w)")
-                                .font(StrandFont.captionNumber)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                                .frame(width: 28, alignment: .leading)
-                            ForEach(1...C25K.daysPerWeek, id: \.self) { d in
-                                dayDot(week: w, day: d)
-                            }
-                            Spacer()
-                        }
-                    }
-                }
-                Text("Tap a day to choose it below.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-        }
-    }
-
-    private func dayDot(week w: Int, day d: Int) -> some View {
-        let s = C25K.session(week: w, day: d)
-        let done = s.map { runner.isCompleted($0) } ?? false
-        let isNext = runner.nextSession.week == w && runner.nextSession.day == d && !done
-        let isSelected = week == w && day == d
-        return Button {
-            week = w
-            day = d
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(done ? StrandPalette.statusPositive
-                          : isNext ? StrandPalette.effortColor.opacity(0.35)
-                          : StrandPalette.textTertiary.opacity(0.18))
-                if done {
-                    Image(systemName: "checkmark")
-                        .font(StrandFont.caption.weight(.bold))
-                        .foregroundStyle(StrandPalette.goldDeepText)
                 } else {
-                    Text("\(d)")
-                        .font(StrandFont.captionNumber)
-                        .foregroundStyle(isNext ? StrandPalette.textPrimary : StrandPalette.textTertiary)
-                }
-            }
-            .frame(width: 30, height: 30)
-            .overlay(Circle().stroke(isSelected ? StrandPalette.accent : .clear, lineWidth: 2))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Week \(w), day \(d)\(done ? ", done" : isNext ? ", next" : "")")
-    }
-
-    // MARK: Picking a day
-
-    private var pickerCard: some View {
-        StrandCard(padding: 20) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Choose a session")
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Stepper("Week \(week) of \(C25K.weeks)", value: $week, in: 1...C25K.weeks)
-                    .font(StrandFont.body)
-                Picker("Day", selection: $day) {
-                    ForEach(1...C25K.daysPerWeek, id: \.self) { d in
-                        Text(dayLabel(d)).tag(d)
-                    }
-                }
-                .pickerStyle(.segmented)
-                NoopButton("Start", systemImage: "figure.run", kind: .primary, fullWidth: true) {
-                    guard let picked else { return }
-                    if !runner.start(picked, model: model) { blockedByWorkout = true }
-                }
-                NoopButton("Test the voice (2-minute session)", systemImage: "speaker.wave.2.fill", kind: .tertiary) {
-                    if !runner.start(C25K.rehearsal, model: model) { blockedByWorkout = true }
-                }
-                Text("Records as a normal Running workout (HR, Effort and GPS route). Music keeps playing; it dips while the coach speaks.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-        }
-    }
-
-    private var planCard: some View {
-        StrandCard(padding: 20) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Week \(week), day \(day)")
-                        .font(StrandFont.headline)
+                    Text("Test complete")
+                        .font(StrandFont.rounded(30))
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    if let picked {
-                        Text("\(picked.totalSeconds / 60) min")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                    }
                 }
-                ForEach(Array(summaryLines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(StrandFont.body)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-                if let picked {
-                    if let entry = runner.logEntry(picked) {
-                        Label("Done: \(C25KLinkSheet.summary(start: entry.startTs, durationS: entry.durationS, avgHr: entry.avgHr, distanceM: entry.distanceM)) (\(entry.source.label))",
-                              systemImage: "checkmark.circle.fill")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.statusPositive)
-                    } else {
-                        NoopButton("Link a past workout…", systemImage: "link", kind: .tertiary) { linking = picked }
-                    }
-                    Toggle("Marked as done", isOn: Binding(
-                        get: { runner.isCompleted(picked) },
-                        set: { runner.setCompleted(picked, $0) }))
-                        .font(StrandFont.subhead)
+                NoopButton("Done", kind: .secondary, fullWidth: true) {
+                    runner.dismissFinished()
+                    selectNext()
                 }
             }
         }
@@ -293,58 +389,88 @@ struct C25KView: View {
 
     // MARK: Helpers
 
-    private func dayLabel(_ d: Int) -> String {
-        guard let s = C25K.session(week: week, day: d) else { return "Day \(d)" }
-        return runner.isCompleted(s) ? "Day \(d) ✓" : "Day \(d)"
+    private func selectNext() {
+        week = runner.nextSession.week
+        day = runner.nextSession.day
     }
 
-    /// Collapses repeated run/walk pairs: "6 × run 90 seconds, walk 2 minutes".
-    private var summaryLines: [String] {
-        guard let picked else { return [] }
-        let middle = Array(picked.segments.dropFirst().dropLast())
-        var lines = ["Warm-up walk, 5 minutes"]
-        if middle.count >= 2, middle.count.isMultiple(of: 2) {
-            let pair = Array(middle.prefix(2))
-            let repeats = middle.count / 2
-            if repeats > 1, (0..<repeats).allSatisfy({ Array(middle[($0 * 2)..<($0 * 2 + 2)]) == pair }) {
-                lines.append("\(repeats) × run \(CueTimeline.spokenDuration(pair[0].seconds)), walk \(CueTimeline.spokenDuration(pair[1].seconds))")
-                lines.append("Cool-down walk, 5 minutes")
-                return lines
-            }
-        }
-        for seg in middle {
-            lines.append("\(C25KRunner.verb(seg.kind)) \(CueTimeline.spokenDuration(seg.seconds))")
-        }
-        lines.append("Cool-down walk, 5 minutes")
-        return lines
+    private func overline(_ text: String, color: Color) -> some View {
+        Text(text.uppercased())
+            .font(StrandFont.overline)
+            .tracking(StrandFont.overlineTracking * 4)
+            .foregroundStyle(color)
     }
 
-    private var segmentTitle: String {
+    private func legend(_ title: String, _ color: Color) -> some View {
+        HStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 10, height: 10)
+            Text(title).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+        }
+    }
+
+    /// "31 min · 6 runs of 90 seconds" or "38 min · 3 runs, longest 5 minutes".
+    static func shape(of s: GuidedSession) -> String {
+        let runs = s.segments.filter(\.kind.isRun).map(\.seconds)
+        let total = "\(s.totalSeconds / 60) min"
+        guard let longest = runs.max() else { return total }
+        if runs.count == 1 { return "\(total) · one \(CueTimeline.spokenDuration(longest)) run" }
+        if Set(runs).count == 1 { return "\(total) · \(runs.count) runs of \(CueTimeline.spokenDuration(longest))" }
+        return "\(total) · \(runs.count) runs, longest \(CueTimeline.spokenDuration(longest))"
+    }
+
+    /// "Bar height is each day's longest run: 90 seconds next, 30 minutes by week 9."
+    static func climbLine(next: GuidedSession) -> String {
+        let now = CueTimeline.spokenDuration(PlanLadder.longestRun(next))
+        let end = C25K.session(week: C25K.weeks, day: C25K.daysPerWeek).map { CueTimeline.spokenDuration(PlanLadder.longestRun($0)) } ?? "30 minutes"
+        return "Bar height is each day's longest run: \(now) next, \(end) by week \(C25K.weeks)."
+    }
+
+    /// "tomorrow", "on Thursday", "today".
+    static func dayPhrase(_ date: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) { return "today" }
+        if cal.isDateInTomorrow(date) { return "tomorrow" }
+        return "on " + date.formatted(.dateTime.weekday(.wide))
+    }
+
+    private var segmentEyebrow: String {
         guard runner.state != .paused else { return "Paused" }
-        return runner.currentSegment.map { C25KRunner.verb($0.kind) } ?? "Finishing"
+        guard let s = runner.session, let i = runner.segmentIndex else { return "Finishing" }
+        let seg = s.segments[i]
+        if seg.kind.isRun {
+            let n = s.segments.prefix(i + 1).filter(\.kind.isRun).count
+            return s.runCount > 1 ? "Run \(n) of \(s.runCount)" : "Run"
+        }
+        return C25KRunner.verb(seg.kind)
     }
 
     private var segmentColor: Color {
         switch runner.currentSegment?.kind {
         case .run: return StrandPalette.effortColor
         case .walk, .warmUp, .coolDown: return StrandPalette.restColor
-        case nil: return StrandPalette.statusPositive
+        case nil: return StrandPalette.accent
         }
     }
 
-    private var zoneLabel: String {
-        guard let bpm = model.bpm, live.streamingLiveHR else { return "--" }
-        return "Z\(model.profile.hrZoneSet.zoneNumber(forBPM: Double(bpm)))"
+    private var zoneColor: Color? {
+        guard let bpm = model.bpm, live.streamingLiveHR else { return nil }
+        return StrandPalette.hrZoneColor(model.profile.hrZoneSet.zoneNumber(forBPM: Double(bpm)))
     }
 
-    private func metric(_ title: LocalizedStringKey, _ value: String) -> some View {
+    private func metric(_ title: LocalizedStringKey, _ value: String, unit: String? = nil, dot: Color? = nil) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(StrandFont.overline)
                 .foregroundStyle(StrandPalette.textTertiary)
-            Text(value)
-                .font(StrandFont.bodyNumber)
-                .foregroundStyle(StrandPalette.textPrimary)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                if let dot { Circle().fill(dot).frame(width: 8, height: 8) }
+                Text(value)
+                    .font(StrandFont.rounded(22, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                if let unit {
+                    Text(unit).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
         }
     }
 
