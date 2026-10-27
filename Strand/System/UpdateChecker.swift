@@ -28,7 +28,7 @@ final class UpdateChecker: ObservableObject {
 
     @Published var state: State = .idle
 
-    private static let endpoint = URL(string: "https://api.github.com/repos/ryanbr/noop/releases/latest")!
+    private static let endpoint = URL(string: "https://api.github.com/repos/karanadapala/noop-trainer/releases/latest")!
 
     /// One release read. Shared by the button and the automatic check (#1659) so there is exactly one
     /// copy of the endpoint, the headers and the parsing — a second copy is how the two would drift into
@@ -49,7 +49,9 @@ final class UpdateChecker: ObservableObject {
                   let tag = json["tag_name"] as? String,
                   let urlString = json["html_url"] as? String,
                   let url = URL(string: urlString) else { return nil }
-            let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+            // NOOP Trainer tags are "trainer-v1.2.3", so they never collide with upstream's "v12.x" tags.
+            let bare = tag.hasPrefix("trainer-") ? String(tag.dropFirst("trainer-".count)) : tag
+            let latest = bare.hasPrefix("v") ? String(bare.dropFirst()) : bare
             return Release(version: latest, url: url, notes: cleanNotes(json["body"] as? String ?? ""))
         } catch {
             return nil

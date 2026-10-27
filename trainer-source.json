@@ -1,0 +1,26 @@
+{
+  "name": "NOOP Trainer",
+  "identifier": "io.github.karanadapala.nooptrainer.source",
+  "sourceURL": "https://raw.githubusercontent.com/karanadapala/noop-trainer/main/trainer-source.json",
+  "subtitle": "NOOP with a voice-guided workout coach.",
+  "description": "A SideStore / AltStore source for NOOP Trainer, a personal fork of NOOP (https://github.com/ryanbr/noop) that adds a voice-guided Couch to 5K coach. Add this source to get one-tap updates.\n\nNot affiliated with WHOOP or with the NOOP project.",
+  "iconURL": "https://github.com/karanadapala/noop-trainer/raw/main/Strand/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512.png",
+  "website": "https://github.com/karanadapala/noop-trainer",
+  "tintColor": "44E2B0",
+  "apps": [
+    {
+      "name": "NOOP Trainer",
+      "bundleIdentifier": "io.github.karanadapala.nooptrainer",
+      "developerName": "karanadapala",
+      "subtitle": "NOOP plus a voice-guided C25K coach.",
+      "localizedDescription": "Everything in NOOP (an offline companion for a WHOOP strap you own), plus a voice-guided Couch to 5K coach: spoken run/walk cues over your music, heart-rate guidance from the strap, and a 9-week progress tracker.\n\nPersonal, experimental fork; not affiliated with WHOOP or with the NOOP project. Source: https://github.com/karanadapala/noop-trainer",
+      "iconURL": "https://github.com/karanadapala/noop-trainer/raw/main/Strand/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512.png",
+      "tintColor": "44E2B0",
+      "category": "healthcare-fitness",
+      "screenshotURLs": [],
+      "minOSVersion": "17.0",
+      "versions": []
+    }
+  ],
+  "news": []
+}

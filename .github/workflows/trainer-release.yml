@@ -1,0 +1,189 @@
+# NOOP Trainer only: bump the version, build the unsigned iOS .ipa, publish a GitHub release and add it
+# to trainer-source.json, the SideStore / AltStore source this fork's users subscribe to.
+#
+# Adapted from upstream's fork-release.yml, minus the Android and macOS legs. It writes to its own
+# source file and commits as github-actions[bot], so upstream's files and identity are never touched
+# and merging upstream/main stays conflict-free.
+#
+# Run from Actions → "Trainer release" → Run workflow.
+name: Trainer release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump (patch = 1.0.x, minor = 1.x.0, major = x.0.0, none = release the version in project.yml)"
+        type: choice
+        options: [patch, minor, major, none]
+        default: patch
+      notes:
+        description: "One line for the release notes and SideStore's update description"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trainer-release
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      ver: ${{ steps.b.outputs.ver }}
+      tag: ${{ steps.b.outputs.tag }}
+      sha: ${{ steps.b.outputs.sha }}
+      build: ${{ steps.b.outputs.build }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - id: b
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUMP: ${{ github.event.inputs.bump }}
+          NOTES: ${{ github.event.inputs.notes }}
+        run: |
+          set -euo pipefail
+          CUR=$(grep -m1 'MARKETING_VERSION: "' project.yml | sed -E 's/.*"([^"]+)".*/\1/')
+          BUILD=$(grep -m1 'CURRENT_PROJECT_VERSION: "' project.yml | sed -E 's/.*"([0-9]+)".*/\1/')
+          IFS=. read -r MA MI PA <<< "$CUR"; MA=${MA:-0}; MI=${MI:-0}; PA=${PA:-0}
+          case "${BUMP:-patch}" in
+            major) NEW="$((MA+1)).0.0" ;;
+            minor) NEW="${MA}.$((MI+1)).0" ;;
+            patch) NEW="${MA}.${MI}.$((PA+1))" ;;
+            none|"") NEW="$CUR" ;;
+            *) echo "Unknown bump: $BUMP" >&2; exit 1 ;;
+          esac
+          TAG="trainer-v${NEW}"
+          if [ "$NEW" != "$CUR" ]; then
+            # The build number must rise with every release: SideStore uses it to spot an update.
+            BUILD=$((BUILD+1))
+            sed -i -E "s/MARKETING_VERSION: \"[^\"]+\"/MARKETING_VERSION: \"$NEW\"/" project.yml
+            sed -i -E "s/CURRENT_PROJECT_VERSION: \"[0-9]+\"/CURRENT_PROJECT_VERSION: \"$BUILD\"/" project.yml
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -am "Release NOOP Trainer ${NEW} (build ${BUILD})"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+          echo "Version: $CUR -> $NEW (build $BUILD, tag $TAG)"
+          {
+            echo "ver=$NEW"
+            echo "tag=$TAG"
+            echo "build=$BUILD"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; the ios job will refresh its .ipa."
+          else
+            BODY=$(mktemp)
+            {
+              printf 'NOOP Trainer **%s** (build %s).\n\n' "$NEW" "$BUILD"
+              [ -n "${NOTES:-}" ] && printf '%s\n\n' "$NOTES"
+              printf 'Install or update through SideStore with the source:\n'
+              printf '`https://raw.githubusercontent.com/%s/main/trainer-source.json`\n\n' "$GITHUB_REPOSITORY"
+              printf 'Based on [NOOP](https://github.com/ryanbr/noop) (PolyForm Noncommercial 1.0.0). Not affiliated with WHOOP.\n'
+            } > "$BODY"
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$(git rev-parse HEAD)" \
+              --title "NOOP Trainer ${NEW}" --notes-file "$BODY"
+          fi
+
+  ios:
+    needs: bump
+    # Same runner as upstream's iOS leg: iOS 26 Liquid Glass needs the iOS 26 SDK (Xcode 26).
+    runs-on: macos-26
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ needs.bump.outputs.sha }}
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build NOOPiOS for device (unsigned, Release)
+        # Release, not Debug: a Debug build's get-task-allow makes a re-signed sideload fail
+        # "integrity could not be verified" (upstream #53).
+        run: >-
+          xcodebuild -scheme NOOPiOS -configuration Release -destination 'generic/platform=iOS'
+          -derivedDataPath build/dd
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          build
+      - name: Package sideload .ipa + attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ needs.bump.outputs.ver }}
+          TAG: ${{ needs.bump.outputs.tag }}
+        run: |
+          set -euo pipefail
+          APP=$(find build/dd/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -type d | head -1)
+          test -n "$APP" || { echo ".app (iphoneos) not found"; exit 1; }
+          # No watch app: it would cost two more of a free Apple ID's ten app IDs a week.
+          rm -rf "$APP/Watch"
+          # Keep the widget extension: it also renders the Live Activity.
+          test -d "$APP/PlugIns/NOOPWidgets.appex" || { echo "NOOPWidgets.appex missing"; exit 1; }
+          # Ad-hoc entitlements so SideStore can provision the App Group shared by the app and widget.
+          Tools/prepare-ios-sideload-app.sh "$APP"
+          rm -rf Payload && mkdir Payload && cp -R "$APP" Payload/
+          zip -qr "NOOP-Trainer-v${VER}.ipa" Payload
+          gh release upload "$TAG" "NOOP-Trainer-v${VER}.ipa" --repo "$GITHUB_REPOSITORY" --clobber
+
+  source:
+    needs: [bump, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: main   # SideStore reads the source from main.
+      - name: Add this release to trainer-source.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ needs.bump.outputs.ver }}
+          TAG: ${{ needs.bump.outputs.tag }}
+          BUILD: ${{ needs.bump.outputs.build }}
+          NOTES: ${{ github.event.inputs.notes }}
+        run: |
+          set -euo pipefail
+          IPA="NOOP-Trainer-v${VER}.ipa"
+          SIZE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | select(.name=="'"$IPA"'") | .size')
+          test -n "$SIZE" || { echo "$IPA not found on release $TAG"; exit 1; }
+          DATE=$(date -u +%Y-%m-%d)
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${IPA}"
+          DESC="${NOTES:-NOOP Trainer ${VER}. See the release notes on GitHub.}"
+          MINOS=$(jq -r '.apps[0].minOSVersion // "17.0"' trainer-source.json)
+
+          # Newest first; drop any earlier entry for this version so a re-run doesn't duplicate it.
+          # The app-level fields mirror the newest version for older AltStore clients.
+          tmp=$(mktemp)
+          jq \
+            --arg v "$VER" --arg b "$BUILD" --arg d "$DATE" --arg desc "$DESC" \
+            --arg url "$URL" --argjson size "$SIZE" --arg min "$MINOS" \
+            '
+            .apps[0].versions |= ([{
+                version: $v, buildVersion: $b, date: $d,
+                localizedDescription: $desc, downloadURL: $url, size: $size, minOSVersion: $min
+              }] + (map(select(.version != $v))))
+            | .apps[0].version            = $v
+            | .apps[0].buildVersion       = $b
+            | .apps[0].versionDate        = $d
+            | .apps[0].versionDescription = $desc
+            | .apps[0].downloadURL        = $url
+            | .apps[0].size               = $size
+            ' trainer-source.json > "$tmp" && mv "$tmp" trainer-source.json
+
+          if git diff --quiet trainer-source.json; then
+            echo "trainer-source.json already lists ${VER}."; exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add trainer-source.json
+          git commit -m "Add NOOP Trainer ${VER} to the SideStore source"
+          git push origin HEAD:main
