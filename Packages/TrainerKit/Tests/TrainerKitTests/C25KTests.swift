@@ -219,3 +219,119 @@ final class PainCheckTests: XCTestCase {
         XCTAssertEqual(decoded, entries)
     }
 }
+
+final class RestRoutineTests: XCTestCase {
+    let noPain = PainState(entries: [], now: Date())
+
+    func input(charge: Double? = 80, legs: LegFeel = .fresh, pain: PainState? = nil, inARow: Int = 2,
+               week: Int = 4, stages: [Block: Stage] = [:]) -> RoutineBuilder.Input {
+        RoutineBuilder.Input(charge: charge, legs: legs, pain: pain ?? noPain, restDayInARow: inARow,
+                             programWeek: week, stages: stages)
+    }
+
+    func testLegsLeadAndChargeOnlyNudgesDown() {
+        XCTAssertEqual(RoutineBuilder.variant(for: input()), .build)
+        XCTAssertEqual(RoutineBuilder.variant(for: input(legs: .heavy)), .steady)
+        XCTAssertEqual(RoutineBuilder.variant(for: input(legs: .sore)), .restore)
+        XCTAssertEqual(RoutineBuilder.variant(for: input(charge: 50)), .steady)
+        XCTAssertEqual(RoutineBuilder.variant(for: input(charge: 20)), .restore)
+        // A high score never lifts sore legs.
+        XCTAssertEqual(RoutineBuilder.variant(for: input(charge: 95, legs: .sore)), .restore)
+        // No score: legs alone decide.
+        XCTAssertEqual(RoutineBuilder.variant(for: input(charge: nil)), .build)
+    }
+
+    func testFirstRestDayAfterARunIsSteadyAtMost() {
+        XCTAssertEqual(RoutineBuilder.variant(for: input(inARow: 1)), .steady)
+    }
+
+    func testHoldMeansProtectAndSoreAreasAreLeftOut() {
+        let now = Date()
+        let feet = [PainEntry(area: .feet, date: now.addingTimeInterval(-86_400), kind: .report(.mild)),
+                    PainEntry(area: .feet, date: now, kind: .trend(.same))]
+        let held = PainState(entries: feet, now: now)
+        XCTAssertEqual(RoutineBuilder.variant(for: input(pain: held)), .protect)
+        // Mild feet without a hold: still Build, but nothing that loads the feet.
+        let mild = PainState(entries: [feet[0]], now: now.addingTimeInterval(-3_600))
+        let r = RoutineBuilder.routine(for: input(pain: mild))
+        XCTAssertEqual(r.variant, .build)
+        XCTAssertFalse(r.items.contains { $0.exercise.loads.contains(.feet) })
+        XCTAssertEqual(r.skippedAreas, [.feet])
+        XCTAssertTrue(r.items.contains { $0.exercise.id == "bridge" })
+    }
+
+    func testLengthsMatchTheDesign() {
+        let build = RoutineBuilder.routine(for: input(week: 4, stages: [.footBalance: .build, .lowerLeg: .build, .hipThigh: .build]))
+        let steady = RoutineBuilder.routine(for: input(legs: .heavy, week: 4))
+        let restore = RoutineBuilder.routine(for: input(legs: .sore, week: 4))
+        XCTAssertTrue((12...21).contains(build.estimatedMinutes), "build \(build.estimatedMinutes)")
+        XCTAssertTrue((10...16).contains(steady.estimatedMinutes), "steady \(steady.estimatedMinutes)")
+        XCTAssertTrue((11...16).contains(restore.estimatedMinutes), "restore \(restore.estimatedMinutes)")
+        // Full Strengthen stage still fits, and rotation brings up different exercises.
+        let late = RoutineBuilder.Input(charge: 80, legs: .fresh, pain: noPain, restDayInARow: 2, programWeek: 8,
+                                        stages: [.footBalance: .strengthen, .lowerLeg: .strengthen, .hipThigh: .strengthen])
+        XCTAssertLessThanOrEqual(RoutineBuilder.routine(for: late).estimatedMinutes, 21)
+        var next = late
+        next.rotation = 1
+        XCTAssertNotEqual(RoutineBuilder.routine(for: late).items.map(\.exercise.id),
+                          RoutineBuilder.routine(for: next).items.map(\.exercise.id))
+        XCTAssertFalse(restore.items.contains { $0.exercise.block == .lowerLeg || $0.exercise.block == .hipThigh })
+        // Steady: walk, feet, one strength block; the optional stretch is the first thing trimmed.
+        XCTAssertEqual(Array(steady.blocks.prefix(3)), [.walk, .footBalance, .lowerLeg])
+    }
+
+    func testEarlyWeeksUseAboutHalfTheSets() {
+        let early = RoutineBuilder.routine(for: input(week: 2))
+        let later = RoutineBuilder.routine(for: input(week: 3))
+        let bridgeEarly = early.items.first { $0.exercise.id == "bridge" }!.dose.sets
+        let bridgeLater = later.items.first { $0.exercise.id == "bridge" }!.dose.sets
+        XCTAssertEqual(bridgeLater, 2)
+        XCTAssertEqual(bridgeEarly, 1)
+    }
+
+    func testStagesFollowTheCalendar() {
+        XCTAssertEqual(Stage.forWeek(1), .learn)
+        XCTAssertEqual(Stage.forWeek(4), .build)
+        XCTAssertEqual(Stage.forWeek(9), .strengthen)
+        XCTAssertEqual(RestDayCatalogue.all.first { $0.id == "bentKneeCalf" }!.dose(.strengthen).variant,
+                       "One leg on the stair edge, holding the dumbbells")
+    }
+}
+
+final class RestDayProgressTests: XCTestCase {
+    let day: TimeInterval = 86_400
+    let t0 = Date(timeIntervalSince1970: 1_793_000_000)
+
+    func session(_ n: Int, _ stage: Stage, skipped: [String] = []) -> RestSessionLog {
+        RestSessionLog(date: t0.addingTimeInterval(Double(n) * 2 * day), variant: .build,
+                       stages: [.lowerLeg: stage], skipped: skipped,
+                       done: ["bentKneeCalf", "tibRaise"].filter { !skipped.contains($0) })
+    }
+
+    func testMovesUpOnlyWhenCalendarAndTwoCleanSessionsAgree() {
+        let two = [session(0, .learn), session(1, .learn)]
+        XCTAssertEqual(RestDayProgress.stages(log: two, pain: [], programWeek: 3, repeatingWeek: false)[.lowerLeg], .learn)
+        XCTAssertEqual(RestDayProgress.stages(log: two, pain: [], programWeek: 4, repeatingWeek: false)[.lowerLeg], .build)
+        XCTAssertEqual(RestDayProgress.stages(log: two, pain: [], programWeek: 4, repeatingWeek: true)[.lowerLeg], .learn)
+        // A skip in the block holds it.
+        let skip = [session(0, .learn), session(1, .learn, skipped: ["tibRaise"])]
+        XCTAssertEqual(RestDayProgress.stages(log: skip, pain: [], programWeek: 4, repeatingWeek: false)[.lowerLeg], .learn)
+        // A pain report the day after holds it.
+        let flag = PainEntry(area: .calves, date: two[1].date.addingTimeInterval(day / 2), kind: .report(.mild))
+        XCTAssertEqual(RestDayProgress.stages(log: two, pain: [flag], programWeek: 4, repeatingWeek: false)[.lowerLeg], .learn)
+        // One step at a time: Build needs two clean Build sessions before Strengthen.
+        let built = two + [session(2, .build)]
+        XCTAssertEqual(RestDayProgress.stages(log: built, pain: [], programWeek: 7, repeatingWeek: false)[.lowerLeg], .build)
+        XCTAssertEqual(RestDayProgress.stages(log: built + [session(3, .build)], pain: [], programWeek: 7,
+                                              repeatingWeek: false)[.lowerLeg], .strengthen)
+        // Blocks never done start at Learn.
+        XCTAssertEqual(RestDayProgress.stages(log: two, pain: [], programWeek: 7, repeatingWeek: false)[.hipThigh], .learn)
+    }
+
+    func testBenchmarkEveryThreeWeeks() {
+        XCTAssertTrue(RestDayProgress.benchmarkDue([], now: t0))
+        let b = [CalfBenchmark(date: t0, left: 18, right: 15)]
+        XCTAssertFalse(RestDayProgress.benchmarkDue(b, now: t0.addingTimeInterval(20 * day)))
+        XCTAssertTrue(RestDayProgress.benchmarkDue(b, now: t0.addingTimeInterval(21 * day)))
+    }
+}
