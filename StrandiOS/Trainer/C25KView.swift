@@ -235,12 +235,40 @@ struct C25KView: View {
                 Text("How do your legs feel?")
                     .font(StrandFont.headline)
                     .foregroundStyle(StrandPalette.textPrimary)
-                ChoiceChips(options: LegFeel.allCases, label: \.label, selected: nil) { routineRunner.setLegs($0) }
+                VStack(spacing: 8) {
+                    ForEach(LegFeel.allCases, id: \.self) { feel in
+                        Button { routineRunner.setLegs(feel) } label: { legFeelRow(feel) }
+                            .buttonStyle(.plain)
+                    }
+                }
                 Text("The coach picks today's routine from this and your Charge.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             }
         }
+    }
+
+    private func legFeelRow(_ feel: LegFeel) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(feel.label)
+                    .font(StrandFont.subhead.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text(feel.detail)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(StrandPalette.surfaceInset))
+        .contentShape(Rectangle())
     }
 
     private func routineLine(_ name: String, _ detail: String) -> some View {

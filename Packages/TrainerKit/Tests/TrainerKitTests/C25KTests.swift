@@ -231,12 +231,12 @@ final class RestRoutineTests: XCTestCase {
 
     func testLegsLeadAndChargeOnlyNudgesDown() {
         XCTAssertEqual(RoutineBuilder.variant(for: input()), .build)
-        XCTAssertEqual(RoutineBuilder.variant(for: input(legs: .heavy)), .steady)
-        XCTAssertEqual(RoutineBuilder.variant(for: input(legs: .sore)), .restore)
+        XCTAssertEqual(RoutineBuilder.variant(for: input(legs: .usual)), .steady)
+        XCTAssertEqual(RoutineBuilder.variant(for: input(legs: .limiting)), .restore)
         XCTAssertEqual(RoutineBuilder.variant(for: input(charge: 50)), .steady)
         XCTAssertEqual(RoutineBuilder.variant(for: input(charge: 20)), .restore)
         // A high score never lifts sore legs.
-        XCTAssertEqual(RoutineBuilder.variant(for: input(charge: 95, legs: .sore)), .restore)
+        XCTAssertEqual(RoutineBuilder.variant(for: input(charge: 95, legs: .limiting)), .restore)
         // No score: legs alone decide.
         XCTAssertEqual(RoutineBuilder.variant(for: input(charge: nil)), .build)
     }
@@ -262,8 +262,8 @@ final class RestRoutineTests: XCTestCase {
 
     func testLengthsMatchTheDesign() {
         let build = RoutineBuilder.routine(for: input(week: 4, stages: [.footBalance: .build, .lowerLeg: .build, .hipThigh: .build]))
-        let steady = RoutineBuilder.routine(for: input(legs: .heavy, week: 4))
-        let restore = RoutineBuilder.routine(for: input(legs: .sore, week: 4))
+        let steady = RoutineBuilder.routine(for: input(legs: .usual, week: 4))
+        let restore = RoutineBuilder.routine(for: input(legs: .limiting, week: 4))
         XCTAssertTrue((12...21).contains(build.estimatedMinutes), "build \(build.estimatedMinutes)")
         XCTAssertTrue((10...16).contains(steady.estimatedMinutes), "steady \(steady.estimatedMinutes)")
         XCTAssertTrue((11...16).contains(restore.estimatedMinutes), "restore \(restore.estimatedMinutes)")
@@ -337,7 +337,7 @@ final class RestDayProgressTests: XCTestCase {
 }
 
 final class RoutineTimelineTests: XCTestCase {
-    func routine(legs: LegFeel = .heavy) -> RestRoutine {
+    func routine(legs: LegFeel = .usual) -> RestRoutine {
         RoutineBuilder.routine(for: .init(charge: 60, legs: legs, pain: PainState(entries: [], now: Date()),
                                           restDayInARow: 1, programWeek: 4,
                                           stages: [.footBalance: .build, .lowerLeg: .build]))

@@ -1,14 +1,23 @@
 import Foundation
 
-/// How the legs feel this morning (D38).
+/// How the legs feel this morning (D38), anchored on what they let you do rather than on a feeling,
+/// since "sore" means different things to different people.
 public enum LegFeel: String, CaseIterable, Codable, Sendable {
-    case fresh, heavy, sore
+    case fresh, usual, limiting
 
     public var label: String {
         switch self {
         case .fresh: return "Fresh"
-        case .heavy: return "A bit heavy"
-        case .sore: return "Sore"
+        case .usual: return "Usual after a run"
+        case .limiting: return "Getting in the way"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .fresh: return "Nothing to notice."
+        case .usual: return "Stiff, heavy or a bit sore, but walking and stairs feel normal."
+        case .limiting: return "Walking or stairs feel it, or it's more than your usual."
         }
     }
 }
@@ -107,8 +116,8 @@ public enum RoutineBuilder {
         var v: RoutineVariant
         switch input.legs {
         case .fresh: v = .build
-        case .heavy: v = .steady
-        case .sore: v = .restore
+        case .usual: v = .steady
+        case .limiting: v = .restore
         }
         switch RestAdvice.band(forCharge: input.charge) {
         case .low: v = min(v, .restore)
