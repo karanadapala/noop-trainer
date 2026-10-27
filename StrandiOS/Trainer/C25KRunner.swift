@@ -22,6 +22,8 @@ final class C25KRunner: ObservableObject {
     @Published private(set) var lastSpoken: String?
     @Published private(set) var completed: Set<String>
     @Published private(set) var log: [String: C25KLogEntry]
+    /// Every "anything hurting?" answer (D49), oldest first.
+    @Published private(set) var pain: [PainEntry]
 
     private weak var model: AppModel?
     private let voice = VoiceCoach()
@@ -37,6 +39,7 @@ final class C25KRunner: ObservableObject {
     private var subscriptions = Set<AnyCancellable>()
 
     private static let completedKey = "trainer.c25k.completed"
+    private static let painKey = "trainer.c25k.pain"
     /// A cue more than this late is dropped rather than spoken out of context.
     private static let staleAfter: TimeInterval = 5
     private static let tick: TimeInterval = 0.5
@@ -44,6 +47,18 @@ final class C25KRunner: ObservableObject {
     private init() {
         completed = Set(UserDefaults.standard.stringArray(forKey: Self.completedKey) ?? [])
         log = C25KLogStore.load()
+        pain = UserDefaults.standard.data(forKey: Self.painKey)
+            .flatMap { try? JSONDecoder().decode([PainEntry].self, from: $0) } ?? []
+    }
+
+    // MARK: Pain
+
+    var painState: PainState { PainState(entries: pain, now: Date()) }
+
+    func recordPain(_ entries: [PainEntry]) {
+        guard !entries.isEmpty else { return }
+        pain.append(contentsOf: entries)
+        if let data = try? JSONEncoder().encode(pain) { UserDefaults.standard.set(data, forKey: Self.painKey) }
     }
 
     // MARK: Progress

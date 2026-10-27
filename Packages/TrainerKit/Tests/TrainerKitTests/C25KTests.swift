@@ -148,3 +148,74 @@ final class RestDayTests: XCTestCase {
         XCTAssertNil(RestAdvice.runDayNote(forCharge: nil))
     }
 }
+
+final class PainCheckTests: XCTestCase {
+    var calendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "America/New_York")!
+        return c
+    }()
+
+    func at(_ day: Int, _ hour: Int) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour))!
+    }
+
+    func state(_ entries: [PainEntry], _ now: Date) -> PainState {
+        PainState(entries: entries, now: now, calendar: calendar)
+    }
+
+    func testReportThenMorningChecks() {
+        let report = PainEntry(area: .feet, date: at(27, 12), kind: .report(.mild))
+        // Same day: active, no check yet, no hold.
+        var s = state([report], at(27, 20))
+        XCTAssertEqual(s.active, [.feet])
+        XCTAssertEqual(s.needsCheck, [])
+        XCTAssertFalse(s.isOnHold)
+        // Next morning: a check is due, and skipping it doesn't hold.
+        s = state([report], at(28, 7))
+        XCTAssertEqual(s.needsCheck, [.feet])
+        XCTAssertFalse(s.isOnHold)
+        // "Same" holds today only...
+        let same = PainEntry(area: .feet, date: at(28, 7), kind: .trend(.same))
+        s = state([report, same], at(28, 9))
+        XCTAssertTrue(s.isOnHold)
+        XCTAssertEqual(s.holds.first?.reason, "Feet: same as yesterday")
+        XCTAssertFalse(s.showRedFlags)
+        // ...and the next morning asks again rather than holding on yesterday's answer.
+        s = state([report, same], at(29, 7))
+        XCTAssertFalse(s.isOnHold)
+        XCTAssertEqual(s.needsCheck, [.feet])
+        // "Less" lifts it but keeps checking; "gone" ends it.
+        let less = PainEntry(area: .feet, date: at(29, 7), kind: .trend(.less))
+        s = state([report, same, less], at(29, 8))
+        XCTAssertFalse(s.isOnHold)
+        XCTAssertEqual(s.active, [.feet])
+        let gone = PainEntry(area: .feet, date: at(30, 7), kind: .trend(.gone))
+        s = state([report, same, less, gone], at(30, 8))
+        XCTAssertEqual(s.active, [])
+        XCTAssertNil(s.summary(.feet))
+    }
+
+    func testWorseAndSharpRaiseRedFlags() {
+        let report = PainEntry(area: .shins, date: at(26, 9), kind: .report(.mild))
+        let worse = PainEntry(area: .shins, date: at(27, 7), kind: .trend(.worse))
+        let s = state([report, worse], at(27, 8))
+        XCTAssertTrue(s.isOnHold)
+        XCTAssertTrue(s.showRedFlags)
+        XCTAssertTrue(s.suggestRepeatingWeek)
+        // A sharp report holds until a later morning says gone or less, even on following days.
+        let sharp = PainEntry(area: .knees, date: at(27, 18), kind: .report(.sharp))
+        let later = state([sharp], at(29, 8))
+        XCTAssertTrue(later.isOnHold)
+        XCTAssertTrue(later.showRedFlags)
+        XCTAssertEqual(later.needsCheck, [.knees])
+        XCTAssertFalse(state([sharp, PainEntry(area: .knees, date: at(29, 8), kind: .trend(.less))], at(29, 9)).isOnHold)
+    }
+
+    func testEntriesRoundTripAsJSON() throws {
+        let entries = [PainEntry(area: .feet, date: at(27, 12), kind: .report(.worsening)),
+                       PainEntry(area: .feet, date: at(28, 7), kind: .trend(.less))]
+        let decoded = try JSONDecoder().decode([PainEntry].self, from: JSONEncoder().encode(entries))
+        XCTAssertEqual(decoded, entries)
+    }
+}

@@ -16,10 +16,15 @@ struct C25KView: View {
     @State private var confirmStop = false
     @State private var blockedByWorkout = false
     @State private var linking: GuidedSession?
+    @State private var reportingPain = false
+    @State private var showingRedFlags = false
+    @State private var confirmRunAnyway = false
+    @State private var askedAfterRun = false
 
     private var picked: GuidedSession? { C25K.session(week: week, day: day) }
     private var isPickedNext: Bool { week == runner.nextSession.week && day == runner.nextSession.day }
     private var charge: Double? { repo.today?.recovery }
+    private var painState: PainState { runner.painState }
 
     private var lastRun: Date? {
         runner.log.values.map(\.date).max()
@@ -38,6 +43,7 @@ struct C25KView: View {
                     finishedCard
                     planCard
                 case .idle:
+                    if !painState.active.isEmpty { bodyCard }
                     if isPickedNext { todayCard }
                     sessionCard
                     planCard
@@ -54,6 +60,16 @@ struct C25KView: View {
         .sheet(item: $linking) { s in
             C25KLinkSheet(session: s) { entry in runner.link(s, to: entry) }
                 .environmentObject(model)
+        }
+        .sheet(isPresented: $reportingPain) {
+            PainReportSheet(title: "Something hurts") { runner.recordPain($0) }
+        }
+        .sheet(isPresented: $showingRedFlags) { RedFlagSheet() }
+        .confirmationDialog("Run anyway?", isPresented: $confirmRunAnyway, titleVisibility: .visible) {
+            Button("Start the run") { startPicked() }
+            Button("Rest today", role: .cancel) {}
+        } message: {
+            Text("\(painState.holds.map(\.reason).joined(separator: ". ")). If you run, stop as soon as it's more than mild.")
         }
         .alert("Another workout is running", isPresented: $blockedByWorkout) {
             Button("OK", role: .cancel) {}
@@ -118,6 +134,75 @@ struct C25KView: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if painState.active.isEmpty {
+                    textLink("Something hurts", systemImage: "bandage") { reportingPain = true }
+                }
+            }
+        }
+    }
+
+    // MARK: Body (pain check, D49 / D61)
+
+    private var bodyCard: some View {
+        let state = painState
+        return StrandCard(padding: 20, tint: state.isOnHold ? StrandPalette.statusWarning : nil) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    overline(state.isOnHold ? "Runs on hold" : "Your body",
+                             color: state.isOnHold ? StrandPalette.statusWarning : StrandPalette.textTertiary)
+                    Spacer()
+                    Button("Add") { reportingPain = true }
+                        .font(StrandFont.subhead.weight(.semibold))
+                        .foregroundStyle(StrandPalette.accent)
+                }
+                ForEach(state.active, id: \.self) { area in
+                    if state.needsCheck.contains(area) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("\(area.label): compared with yesterday?")
+                                .font(StrandFont.headline)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            ChoiceChips(options: PainTrend.allCases, label: \.label, selected: nil,
+                                        tint: StrandPalette.statusWarning) { trend in
+                                runner.recordPain([PainEntry(area: area, date: Date(), kind: .trend(trend))])
+                            }
+                        }
+                    } else {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(area.label)
+                                .font(StrandFont.headline)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Spacer()
+                            Text(state.summary(area) ?? "")
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                        }
+                    }
+                }
+                if state.isOnHold {
+                    Text("Rest today. The hold lifts by itself when a morning check says gone or less.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if !state.needsCheck.isEmpty {
+                    Text("Answer each morning. Same or worse puts today's run on hold.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                } else {
+                    Text("The coach asks again tomorrow morning.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                if state.suggestRepeatingWeek {
+                    Text("If it keeps coming back, repeating this C25K week is a good idea.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if state.showRedFlags || state.isOnHold {
+                    NoopButton("When to get it checked", systemImage: "cross.case", kind: .secondary) { showingRedFlags = true }
+                } else {
+                    textLink("When to get it checked", systemImage: "cross.case") { showingRedFlags = true }
+                }
             }
         }
     }
@@ -138,10 +223,11 @@ struct C25KView: View {
     // MARK: Session
 
     private var sessionCard: some View {
-        StrandCard(padding: 20, tint: isPickedNext && today == .runDay ? StrandPalette.effortColor : nil) {
+        StrandCard(padding: 20, tint: isPickedNext && today == .runDay && !onHold ? StrandPalette.effortColor : nil) {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .center) {
-                    overline(sessionEyebrow, color: isPickedNext ? StrandPalette.effortColor : StrandPalette.textTertiary)
+                    overline(sessionEyebrow, color: onHold ? StrandPalette.statusWarning
+                             : isPickedNext ? StrandPalette.effortColor : StrandPalette.textTertiary)
                     Spacer()
                     sessionMenu
                 }
@@ -185,17 +271,21 @@ struct C25KView: View {
                         .foregroundStyle(StrandPalette.accent)
                 }
 
-                if isPickedNext, today == .runDay, let note = RestAdvice.runDayNote(forCharge: charge) {
+                if onHold {
+                    Label("\(painState.holds.map(\.reason).joined(separator: ". ")). Rest today.",
+                          systemImage: "pause.circle")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.statusWarning)
+                } else if isPickedNext, today == .runDay, let note = RestAdvice.runDayNote(forCharge: charge) {
                     Label(note, systemImage: "battery.25percent")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.statusWarning)
                 }
 
                 VStack(spacing: 10) {
-                    NoopButton(startTitle, systemImage: "figure.run",
-                               kind: pickedDone ? .secondary : .primary, fullWidth: true) {
-                        guard let picked else { return }
-                        if !runner.start(picked, model: model) { blockedByWorkout = true }
+                    NoopButton(onHold ? "Run anyway" : startTitle, systemImage: "figure.run",
+                               kind: pickedDone || onHold ? .secondary : .primary, fullWidth: true) {
+                        if onHold { confirmRunAnyway = true } else { startPicked() }
                     }
                     Text("Saved as a Running workout with heart rate and route. Your music keeps playing and dips for each cue.")
                         .font(StrandFont.footnote)
@@ -206,7 +296,15 @@ struct C25KView: View {
         }
     }
 
+    private var onHold: Bool { painState.isOnHold }
+
+    private func startPicked() {
+        guard let picked else { return }
+        if !runner.start(picked, model: model) { blockedByWorkout = true }
+    }
+
     private var sessionEyebrow: String {
+        if onHold { return "On hold" }
         if pickedDone { return "Done" }
         guard isPickedNext else { return "From the plan" }
         return today == .runDay ? "Today's run" : "Next run"
@@ -260,6 +358,7 @@ struct C25KView: View {
                     Button { runner.setCompleted(picked, true) } label: { Label("Mark as done", systemImage: "checkmark") }
                 }
             }
+            Button { reportingPain = true } label: { Label("Something hurts…", systemImage: "bandage") }
             Divider()
             Button {
                 if !runner.start(C25K.rehearsal, model: model) { blockedByWorkout = true }
@@ -374,6 +473,19 @@ struct C25KView: View {
                     Text("Saved in Workouts. Tomorrow is a rest day.")
                         .font(StrandFont.body)
                         .foregroundStyle(StrandPalette.textSecondary)
+                    if !askedAfterRun {
+                        Divider().overlay(StrandPalette.hairline)
+                        Text("Anything hurting?")
+                            .font(StrandFont.headline)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        HStack(spacing: 12) {
+                            NoopButton("No", kind: .secondary, fullWidth: true) { askedAfterRun = true }
+                            NoopButton("Yes, log it", systemImage: "bandage", kind: .secondary, fullWidth: true) {
+                                askedAfterRun = true
+                                reportingPain = true
+                            }
+                        }
+                    }
                 } else {
                     Text("Test complete")
                         .font(StrandFont.rounded(30))
@@ -381,6 +493,7 @@ struct C25KView: View {
                 }
                 NoopButton("Done", kind: .secondary, fullWidth: true) {
                     runner.dismissFinished()
+                    askedAfterRun = false
                     selectNext()
                 }
             }
@@ -399,6 +512,16 @@ struct C25KView: View {
             .font(StrandFont.overline)
             .tracking(StrandFont.overlineTracking * 4)
             .foregroundStyle(color)
+    }
+
+    /// A left-aligned accent link, for secondary actions inside a card.
+    private func textLink(_ title: LocalizedStringKey, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(StrandPalette.accent)
+        }
+        .buttonStyle(.plain)
     }
 
     private func legend(_ title: String, _ color: Color) -> some View {
