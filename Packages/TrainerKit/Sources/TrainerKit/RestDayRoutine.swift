@@ -53,6 +53,8 @@ public struct RestRoutine: Equatable, Sendable {
     public let items: [RoutineItem]
     /// Areas left out because they hurt.
     public let skippedAreas: [BodyArea]
+    /// The stage each progressive block in it is done at (logged for D57).
+    public let stages: [Block: Stage]
 
     public var estimatedMinutes: Int {
         let work = items.map(\.dose.estimatedSeconds).reduce(0, +)
@@ -136,6 +138,7 @@ public enum RoutineBuilder {
         let halfVolume = input.programWeek <= 2
 
         func stage(_ block: Block) -> Stage { input.stages[block] ?? .learn }
+        var used: [Block: Stage] = [:]
         /// `count` exercises from the block, rotated so each session brings up the next ones.
         func pick(_ block: Block, _ count: Int, stageOverride: Stage? = nil, setsDelta: Int = 0,
                   excluding: Set<String> = []) -> [RoutineItem] {
@@ -144,6 +147,7 @@ public enum RoutineBuilder {
             guard !pool.isEmpty else { return [] }
             let start = input.rotation % pool.count
             let rotated = Array(pool[start...] + pool[..<start])
+            if Block.progressive.contains(block) { used[block] = stageOverride ?? stage(block) }
             return rotated.prefix(count).map { ex in
                 var dose = ex.dose(stageOverride ?? stage(block))
                 if halfVolume { dose = dose.withSets((dose.sets + 1) / 2) }
@@ -171,7 +175,9 @@ public enum RoutineBuilder {
         let skipped = BodyArea.allCases.filter { area in
             sore.contains(area) && RestDayCatalogue.all.contains { $0.loads.contains(area) }
         }
-        return RestRoutine(variant: variant, walkMinutes: walk, items: list, skippedAreas: skipped)
+        let kept = Set(list.map(\.exercise.block))
+        return RestRoutine(variant: variant, walkMinutes: walk, items: list, skippedAreas: skipped,
+                           stages: used.filter { kept.contains($0.key) })
     }
 
     /// Trims to the time budget: a set off the longest strength item first (never below 2 sets while

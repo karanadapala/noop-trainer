@@ -19,7 +19,7 @@ public struct RestSessionLog: Codable, Equatable, Sendable {
         self.done = done
     }
 
-    func did(_ block: Block) -> Bool {
+    public func did(_ block: Block) -> Bool {
         (done + skipped).contains { id in RestDayCatalogue.all.first { $0.id == id }?.block == block }
     }
 

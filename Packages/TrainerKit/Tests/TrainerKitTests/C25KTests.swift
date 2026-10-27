@@ -335,3 +335,40 @@ final class RestDayProgressTests: XCTestCase {
         XCTAssertTrue(RestDayProgress.benchmarkDue(b, now: t0.addingTimeInterval(21 * day)))
     }
 }
+
+final class RoutineTimelineTests: XCTestCase {
+    func routine(legs: LegFeel = .heavy) -> RestRoutine {
+        RoutineBuilder.routine(for: .init(charge: 60, legs: legs, pain: PainState(entries: [], now: Date()),
+                                          restDayInARow: 1, programWeek: 4,
+                                          stages: [.footBalance: .build, .lowerLeg: .build]))
+    }
+
+    func testStepsAreContiguousAndCuesSorted() {
+        let tl = RoutineTimeline(routine())
+        XCTAssertEqual(tl.steps.first?.kind, .walk)
+        for (a, b) in zip(tl.steps, tl.steps.dropFirst()) { XCTAssertEqual(a.end, b.start) }
+        XCTAssertEqual(tl.cues.map(\.at), tl.cues.map(\.at).sorted())
+        XCTAssertEqual(tl.cues.last?.text, "Routine complete. Nice work.")
+        XCTAssertEqual(tl.cues.last?.at, Double(tl.totalSeconds))
+        // The player's length matches the routine's estimate to within a few minutes.
+        XCTAssertLessThan(abs(tl.totalSeconds / 60 - routine().estimatedMinutes), 4)
+    }
+
+    func testPerSideSetsAnnounceTheSideAndSwitch() throws {
+        let tl = RoutineTimeline(routine())
+        let calf = try XCTUnwrap(tl.steps.first { $0.exerciseID == "bentKneeCalf" && $0.kind == .work })
+        XCTAssertTrue(calf.detail.contains("Left leg"), calf.detail)
+        XCTAssertTrue(tl.cues.contains { $0.text == "Switch sides." })
+        XCTAssertTrue(tl.cues.contains { $0.text == "Last one, up." })
+        XCTAssertTrue(tl.cues.contains { $0.text.hasPrefix("Next: Bent-knee calf raise.") })
+    }
+
+    func testSkipJumpsToTheNextExercise() throws {
+        let tl = RoutineTimeline(routine())
+        let first = try XCTUnwrap(tl.steps.first { $0.kind == .work })
+        let next = tl.nextExerciseStart(after: first.start + 1)
+        let landed = try XCTUnwrap(tl.steps.first { $0.start == next })
+        XCTAssertEqual(landed.kind, .change)
+        XCTAssertNotEqual(landed.exerciseID, first.exerciseID)
+    }
+}

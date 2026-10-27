@@ -10,6 +10,7 @@ struct C25KView: View {
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var repo: Repository
     @ObservedObject private var runner = C25KRunner.shared
+    @ObservedObject private var routineRunner = RoutineRunner.shared
 
     @State private var week = 1
     @State private var day = 1
@@ -20,6 +21,7 @@ struct C25KView: View {
     @State private var showingRedFlags = false
     @State private var confirmRunAnyway = false
     @State private var askedAfterRun = false
+    @State private var routineChoice: RoutineVariant?
 
     private var picked: GuidedSession? { C25K.session(week: week, day: day) }
     private var isPickedNext: Bool { week == runner.nextSession.week && day == runner.nextSession.day }
@@ -45,7 +47,9 @@ struct C25KView: View {
                 case .idle:
                     if !painState.active.isEmpty { bodyCard }
                     if isPickedNext { todayCard }
+                    if today == .runDay && onHold { routineCard(title: "Rest-day routine") }
                     sessionCard
+                    if today == .runDay && !onHold { routineCard(title: "Not running today?") }
                     planCard
                 }
             }
@@ -65,6 +69,9 @@ struct C25KView: View {
             PainReportSheet(title: "Something hurts") { runner.recordPain($0) }
         }
         .sheet(isPresented: $showingRedFlags) { RedFlagSheet() }
+        .fullScreenCover(isPresented: Binding(get: { routineRunner.state != .idle }, set: { _ in })) {
+            RoutinePlayerView()
+        }
         .confirmationDialog("Run anyway?", isPresented: $confirmRunAnyway, titleVisibility: .visible) {
             Button("Start the run") { startPicked() }
             Button("Rest today", role: .cancel) {}
@@ -101,13 +108,15 @@ struct C25KView: View {
         case .runDay:
             EmptyView()
         case .restDay(let from):
-            restCard(title: "Rest day", reason: "You ran yesterday. Your next run is \(Self.dayPhrase(from)).")
+            restCard(title: "Rest day", reason: "You ran yesterday. Your next run is \(Self.dayPhrase(from)).",
+                     showsRoutine: true)
         case .ranToday(let from):
-            restCard(title: "Done for today", reason: "Nice work. Rest tomorrow; your next run is \(Self.dayPhrase(from)).")
+            restCard(title: "Done for today", reason: "Nice work. Rest tomorrow; your next run is \(Self.dayPhrase(from)).",
+                     showsRoutine: false)
         }
     }
 
-    private func restCard(title: String, reason: String) -> some View {
+    private func restCard(title: String, reason: String, showsRoutine: Bool) -> some View {
         let advice = RestAdvice.forCharge(charge)
         return StrandCard(padding: 20, tint: StrandPalette.restColor) {
             VStack(alignment: .leading, spacing: 14) {
@@ -134,10 +143,111 @@ struct C25KView: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if showsRoutine {
+                    Divider().overlay(StrandPalette.hairline)
+                    routineSection
+                }
                 if painState.active.isEmpty {
                     textLink("Something hurts", systemImage: "bandage") { reportingPain = true }
                 }
             }
+        }
+    }
+
+    // MARK: Rest-day routine (D37–D48)
+
+    private func routineCard(title: String) -> some View {
+        StrandCard(padding: 20) {
+            VStack(alignment: .leading, spacing: 14) {
+                overline(title, color: StrandPalette.restColor)
+                routineSection
+            }
+        }
+    }
+
+    /// Rest days so far in a row: 1 the day after a run.
+    private var restDayInARow: Int {
+        guard let lastRun else { return 2 }
+        let cal = Calendar.current
+        return cal.dateComponents([.day], from: cal.startOfDay(for: lastRun), to: cal.startOfDay(for: Date())).day ?? 2
+    }
+
+    private func routineInput(_ legs: LegFeel) -> RoutineBuilder.Input {
+        let week = runner.nextSession.week
+        return RoutineBuilder.Input(
+            charge: charge, legs: legs, pain: painState, restDayInARow: restDayInARow, programWeek: week,
+            stages: RestDayProgress.stages(log: routineRunner.sessions, pain: runner.pain, programWeek: week,
+                                           repeatingWeek: false),
+            lastStrengthBlock: routineRunner.lastStrengthBlock, rotation: routineRunner.sessions.count)
+    }
+
+    @ViewBuilder
+    private var routineSection: some View {
+        if let done = routineRunner.doneToday {
+            Label("Done today: \(done.variant.label) routine", systemImage: "checkmark.circle.fill")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.accent)
+        } else if let legs = routineRunner.legsToday {
+            let input = routineInput(legs)
+            let suggested = RoutineBuilder.variant(for: input)
+            let routine = RoutineBuilder.routine(for: input, variant: routineChoice ?? suggested)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("\(routine.variant.label) · about \(routine.estimatedMinutes) min")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Spacer()
+                    Menu {
+                        ForEach(RoutineVariant.allCases.reversed(), id: \.self) { v in
+                            Button(v == suggested ? "\(v.label) (suggested)" : v.label) { routineChoice = v }
+                        }
+                    } label: {
+                        Text("Change")
+                            .font(StrandFont.subhead.weight(.semibold))
+                            .foregroundStyle(StrandPalette.accent)
+                    }
+                }
+                Text(routine.variant.summary)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    if routine.walkMinutes > 0 { routineLine("Easy walk", "\(routine.walkMinutes) min") }
+                    ForEach(routine.items, id: \.exercise.id) { item in
+                        routineLine(item.exercise.name, item.dose.variant)
+                    }
+                }
+                if !routine.skippedAreas.isEmpty {
+                    Text("Leaving out anything that loads your \(routine.skippedAreas.map { $0.label.lowercased() }.joined(separator: " and ")) while it hurts.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.statusWarning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                NoopButton("Start the routine", systemImage: "play.fill", kind: .primary, fullWidth: true) {
+                    if !routineRunner.start(routine) { blockedByWorkout = true }
+                }
+                Text("Voice-guided. Put the mat down near a wall; the screen stays on.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("How do your legs feel?")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                ChoiceChips(options: LegFeel.allCases, label: \.label, selected: nil) { routineRunner.setLegs($0) }
+                Text("The coach picks today's routine from this and your Charge.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
+    }
+
+    private func routineLine(_ name: String, _ detail: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Circle().fill(StrandPalette.restColor).frame(width: 6, height: 6)
+            Text(name).font(StrandFont.subhead.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
+            Text(detail).font(StrandFont.subhead).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
         }
     }
 
