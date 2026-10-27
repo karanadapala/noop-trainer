@@ -1,0 +1,104 @@
+import XCTest
+@testable import TrainerKit
+
+final class C25KTests: XCTestCase {
+    func testAllTwentySevenSessionsExist() {
+        XCTAssertEqual(C25K.all.count, 27)
+        XCTAssertNil(C25K.session(week: 10, day: 1))
+        XCTAssertNil(C25K.session(week: 1, day: 4))
+    }
+
+    func testWeekTwoDayOneMatchesTheClassicPlan() throws {
+        let s = try XCTUnwrap(C25K.session(week: 2, day: 1))
+        XCTAssertEqual(s.segments.first, Segment(.warmUp, 300))
+        XCTAssertEqual(s.segments.last, Segment(.coolDown, 300))
+        let middle = Array(s.segments.dropFirst().dropLast())
+        XCTAssertEqual(middle.count, 12)
+        XCTAssertEqual(s.runCount, 6)
+        XCTAssertTrue(middle.enumerated().allSatisfy { i, seg in
+            i.isMultiple(of: 2) ? seg == Segment(.run, 90) : seg == Segment(.walk, 120)
+        })
+        XCTAssertEqual(s.totalSeconds, 300 + 6 * 210 + 300)
+    }
+
+    func testWeekNineIsThirtyMinutesOfRunning() throws {
+        let s = try XCTUnwrap(C25K.session(week: 9, day: 3))
+        XCTAssertEqual(s.segments.filter { $0.kind.isRun }.map(\.seconds), [1800])
+    }
+
+    func testSegmentIndexAtBoundaries() throws {
+        let s = try XCTUnwrap(C25K.session(week: 2, day: 1))
+        XCTAssertEqual(s.segmentIndex(at: 0), 0)
+        XCTAssertEqual(s.segmentIndex(at: 299.9), 0)
+        XCTAssertEqual(s.segmentIndex(at: 300), 1)
+        XCTAssertEqual(s.segmentIndex(at: 390), 2)
+        XCTAssertNil(s.segmentIndex(at: Double(s.totalSeconds)))
+    }
+}
+
+final class CueTimelineTests: XCTestCase {
+    func testWeekTwoCues() throws {
+        let s = try XCTUnwrap(C25K.session(week: 2, day: 1))
+        let cues = CueTimeline.cues(for: s)
+        XCTAssertEqual(cues.first?.text, "Week 2, day 1. Warm up with a brisk walk for 5 minutes.")
+        XCTAssertTrue(cues.contains(Cue(at: 300, text: "Run 1 of 6. Run for 90 seconds.", priority: .transition)))
+        XCTAssertTrue(cues.contains { $0.text == "Last run! Run for 90 seconds." })
+        XCTAssertTrue(cues.contains(Cue(at: 390, text: "Walk for 2 minutes.", priority: .transition)))
+        XCTAssertTrue(cues.contains(Cue(at: 360, text: "30 seconds left.", priority: .status)))
+        XCTAssertEqual(cues.last?.at, Double(s.totalSeconds))
+        XCTAssertTrue(cues.last?.text.hasPrefix("Workout complete") ?? false)
+        // Sorted, and one countdown before each of the 13 changes.
+        XCTAssertEqual(cues.map(\.at), cues.map(\.at).sorted())
+        XCTAssertEqual(cues.filter { $0.text == "3. 2. 1." }.count, s.segments.count - 1)
+    }
+
+    func testRehearsalCues() {
+        let cues = CueTimeline.cues(for: C25K.rehearsal)
+        XCTAssertEqual(cues.first?.text, "Test session. Warm up with a brisk walk for 30 seconds.")
+        XCTAssertEqual(cues.last?.text, "Test complete.")
+        XCTAssertEqual(cues.filter { $0.text == "3. 2. 1." }.count, 3)
+    }
+
+    func testSpokenDurations() {
+        XCTAssertEqual(CueTimeline.spokenDuration(60), "1 minute")
+        XCTAssertEqual(CueTimeline.spokenDuration(90), "90 seconds")
+        XCTAssertEqual(CueTimeline.spokenDuration(120), "2 minutes")
+        XCTAssertEqual(CueTimeline.spokenDuration(150), "2 and a half minutes")
+        XCTAssertEqual(CueTimeline.spokenDuration(1800), "30 minutes")
+    }
+
+    func testSingleRunSessionHasNoRunNumbering() throws {
+        let cues = CueTimeline.cues(for: try XCTUnwrap(C25K.session(week: 7, day: 1)))
+        XCTAssertTrue(cues.contains { $0.text == "Run for 25 minutes. Steady and easy." })
+        XCTAssertTrue(cues.contains { $0.text == "One minute left." })
+    }
+}
+
+final class HeartRateGuardTests: XCTestCase {
+    let guardRule = HeartRateGuard()
+
+    func testSlowDownWhenAboveCeilingWhileRunning() {
+        XCTAssertNotNil(guardRule.correction(segment: .run, zone: 5, secondsIntoSegment: 30,
+                                             secondsSinceLastCorrection: nil))
+        XCTAssertNil(guardRule.correction(segment: .run, zone: 4, secondsIntoSegment: 30,
+                                          secondsSinceLastCorrection: nil))
+    }
+
+    func testCooldownAndSettleTime() {
+        XCTAssertNil(guardRule.correction(segment: .run, zone: 5, secondsIntoSegment: 30,
+                                          secondsSinceLastCorrection: 20))
+        XCTAssertNil(guardRule.correction(segment: .run, zone: 5, secondsIntoSegment: 5,
+                                          secondsSinceLastCorrection: nil))
+        XCTAssertNil(guardRule.correction(segment: .run, zone: nil, secondsIntoSegment: 30,
+                                          secondsSinceLastCorrection: nil))
+    }
+
+    func testWalkRecoveryOnlyAfterGrace() {
+        XCTAssertNil(guardRule.correction(segment: .walk, zone: 4, secondsIntoSegment: 30,
+                                          secondsSinceLastCorrection: nil))
+        XCTAssertNotNil(guardRule.correction(segment: .walk, zone: 4, secondsIntoSegment: 70,
+                                             secondsSinceLastCorrection: nil))
+        XCTAssertNil(guardRule.correction(segment: .warmUp, zone: 5, secondsIntoSegment: 120,
+                                          secondsSinceLastCorrection: nil))
+    }
+}

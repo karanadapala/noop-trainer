@@ -44,7 +44,7 @@ enum ShortcutHealthImport {
     /// export→import loop. Used only by the guard + its test.
     static let forbiddenSources: Set<String> = ["my-whoop", "my-whoop-noop"]
 
-    static let scheme = "noop"
+    static let scheme = "nooptrainer"
     static let host = "import-health"
     static let payloadParam = "payload"
     static let versionParam = "v"
