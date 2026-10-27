@@ -13,23 +13,33 @@ public struct Cue: Equatable, Sendable {
         public static func < (a: Priority, b: Priority) -> Bool { a.rawValue < b.rawValue }
     }
 
+    public enum Kind: Equatable, Sendable {
+        /// Spoken aloud.
+        case speech
+        /// Beeps instead of words: short beeps on the last three seconds, then a long beep exactly at
+        /// the change. `text` is kept only for the screen.
+        case countdown
+    }
+
     /// Seconds of active (unpaused) session time at which to speak.
     public let at: Double
     public let text: String
     public let priority: Priority
+    public let kind: Kind
 
-    public init(at: Double, text: String, priority: Priority) {
+    public init(at: Double, text: String, priority: Priority, kind: Kind = .speech) {
         self.at = at
         self.text = text
         self.priority = priority
+        self.kind = kind
     }
 }
 
 /// Builds the full, pre-scheduled list of spoken cues for a session (B4: everything is known up front,
 /// so the app only has to say whatever is due whenever it gets a moment to run).
 public enum CueTimeline {
-    /// Countdown is spoken as one utterance this many seconds before a change.
-    static let countdownLead = 3.5
+    /// The countdown starts this many seconds before a change: beeps at -3, -2, -1 and a long one at 0.
+    public static let countdownLead = 3.0
 
     public static func cues(for session: GuidedSession) -> [Cue] {
         var out: [Cue] = []
@@ -57,9 +67,9 @@ public enum CueTimeline {
             } else if seg.seconds >= 75 {
                 out.append(Cue(at: end - 30, text: "30 seconds left.", priority: .status))
             }
-            // 3-2-1 into the next segment (not after the final cool-down).
+            // 3-2-1 beeps into the next segment (not after the final cool-down).
             if i < session.segments.count - 1 {
-                out.append(Cue(at: end - countdownLead, text: "3. 2. 1.", priority: .transition))
+                out.append(Cue(at: end - countdownLead, text: "3. 2. 1.", priority: .transition, kind: .countdown))
             }
         }
 

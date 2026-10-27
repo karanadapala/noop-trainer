@@ -39,6 +39,7 @@ final class C25KRunner: ObservableObject {
     private static let completedKey = "trainer.c25k.completed"
     /// A cue more than this late is dropped rather than spoken out of context.
     private static let staleAfter: TimeInterval = 5
+    private static let tick: TimeInterval = 0.5
 
     private init() {
         completed = Set(UserDefaults.standard.stringArray(forKey: Self.completedKey) ?? [])
@@ -122,7 +123,7 @@ final class C25KRunner: ObservableObject {
         model.startRealtimeHR()
         voice.prepare()
 
-        let t = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+        let t = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
         RunLoop.main.add(t, forMode: .common)
@@ -138,6 +139,7 @@ final class C25KRunner: ObservableObject {
         pausedAt = Date()
         state = .paused
         if model?.activeWorkout?.isPaused == false { model?.toggleWorkoutPause() }
+        voice.cancelCountdown()
         voice.say("Paused.", interrupt: true)
     }
 
@@ -157,6 +159,7 @@ final class C25KRunner: ObservableObject {
     /// Ends early: the workout is still saved, but the day isn't marked complete.
     func stop() {
         guard state == .running || state == .paused else { return }
+        voice.cancelCountdown()
         voice.say("Workout stopped.", interrupt: true)
         tearDown()
         state = .idle
@@ -182,15 +185,25 @@ final class C25KRunner: ObservableObject {
 
     private func speakDueCues(at t: TimeInterval) {
         var due: [Cue] = []
-        while nextCue < cues.count, cues[nextCue].at <= t {
+        // A countdown is taken one tick early and scheduled to the exact moment, so the beeps don't
+        // wander by up to a tick.
+        while nextCue < cues.count,
+              cues[nextCue].at <= t || (cues[nextCue].kind == .countdown && cues[nextCue].at - t <= Self.tick) {
             due.append(cues[nextCue])
             nextCue += 1
         }
         guard !due.isEmpty else { return }
-        let fresh = due.filter { t - $0.at <= Self.staleAfter }
+        // Beeps only make sense on time; a late one is dropped and the segment announcement follows.
+        if let beeps = due.last(where: { $0.kind == .countdown }), t - beeps.at <= Self.tick {
+            lastTransitionAt = t
+            lastSpoken = beeps.text
+            voice.countdown(delay: max(0, beeps.at - t), skip: max(0, t - beeps.at))
+        }
+        let speech = due.filter { $0.kind == .speech }
+        let fresh = speech.filter { t - $0.at <= Self.staleAfter }
         // Late wake-up: say where we are now instead of replaying old cues.
         let pick = fresh.last { $0.priority == .transition } ?? fresh.last
-            ?? due.last { $0.priority == .transition && !$0.text.hasPrefix("3.") }
+            ?? speech.last { $0.priority == .transition }
         guard let pick else { return }
         if pick.priority == .transition { lastTransitionAt = t }
         say(pick.text, interrupt: pick.priority == .transition)

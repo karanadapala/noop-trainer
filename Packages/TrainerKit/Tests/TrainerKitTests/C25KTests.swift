@@ -52,6 +52,16 @@ final class CueTimelineTests: XCTestCase {
         XCTAssertEqual(cues.filter { $0.text == "3. 2. 1." }.count, s.segments.count - 1)
     }
 
+    func testCountdownIsBeepsEndingOnTheChange() throws {
+        let s = try XCTUnwrap(C25K.session(week: 2, day: 1))
+        let countdowns = CueTimeline.cues(for: s).filter { $0.kind == .countdown }
+        XCTAssertEqual(countdowns.count, s.segments.count - 1)
+        // The long beep lands exactly on each segment change.
+        XCTAssertEqual(countdowns.map { $0.at + CueTimeline.countdownLead },
+                       s.segmentStarts.dropFirst().map(Double.init))
+        XCTAssertTrue(CueTimeline.cues(for: s).filter { $0.text != "3. 2. 1." }.allSatisfy { $0.kind == .speech })
+    }
+
     func testRehearsalCues() {
         let cues = CueTimeline.cues(for: C25K.rehearsal)
         XCTAssertEqual(cues.first?.text, "Test session. Warm up with a brisk walk for 30 seconds.")
