@@ -97,6 +97,31 @@ final class BackupSyncRoundTripTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "units.distance"), "metric")
     }
 
+    // MARK: - NOOP Trainer state round trip
+
+    func testTrainerStateRidesTheBackupAndReplacesTheLiveState() throws {
+        let sourceDB = tmp.appendingPathComponent("source.sqlite")
+        try makeNoopDatabase(at: sourceDB, deviceRows: ["my-whoop"])
+        let source = try freshDefaults()
+        source.set(Data("[{\"area\":\"feet\"}]".utf8), forKey: "trainer.c25k.pain")
+        source.set(["w1d1", "w1d2", "w1d3"], forKey: "trainer.c25k.completed")
+        source.set("not mine", forKey: "profile.sex")
+
+        let backup = tmp.appendingPathComponent("with-trainer.noopbak")
+        try DataBackup.writeBackupForTesting(databaseAt: sourceDB, to: backup, trainer: source)
+
+        let defaults = try freshDefaults()
+        defaults.set(Data("stale".utf8), forKey: "trainer.c25k.log")
+        let liveDB = tmp.appendingPathComponent("live.sqlite")
+        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path, settingsDefaults: defaults)
+
+        guard case .imported = result else { return XCTFail("Restore should succeed, got \(result)") }
+        XCTAssertEqual(defaults.data(forKey: "trainer.c25k.pain"), Data("[{\"area\":\"feet\"}]".utf8))
+        XCTAssertEqual(defaults.stringArray(forKey: "trainer.c25k.completed"), ["w1d1", "w1d2", "w1d3"])
+        XCTAssertNil(defaults.object(forKey: "trainer.c25k.log"), "Trainer keys not in the backup are cleared")
+        XCTAssertNil(defaults.string(forKey: "profile.sex"), "Only trainer.* keys come from trainer.plist")
+    }
+
     func testLegacySingleEntryZipStillRestoresAndAppliesNoSettings() throws {
         // A pre-#1000 backup: DB entry only (writeBackupForTesting with settings nil).
         let sourceDB = tmp.appendingPathComponent("source.sqlite")

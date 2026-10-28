@@ -226,7 +226,8 @@ enum DataBackup {
         if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
             throw ExportIntegrityFailure(complaint: complaint)
         }
-        try writeBackupZip(dbURL: dbURL, to: dest, settingsJSON: settingsJSON, manifestJSON: currentManifestJSON())
+        try writeBackupZip(dbURL: dbURL, to: dest, settingsJSON: settingsJSON, manifestJSON: currentManifestJSON(),
+                           trainerPlist: TrainerBackup.snapshot(from: .standard))
         switch verifyWrittenBackup(at: dest) {
         case .intact:
             break
@@ -259,7 +260,8 @@ enum DataBackup {
         return Data(json.utf8)
     }
 
-    private static func writeBackupZip(dbURL: URL, to dest: URL, settingsJSON: Data?, manifestJSON: Data) throws {
+    private static func writeBackupZip(dbURL: URL, to dest: URL, settingsJSON: Data?, manifestJSON: Data,
+                                       trainerPlist: Data? = nil) throws {
         let archive = try Archive(url: dest, accessMode: .create)
         try archive.addEntry(with: backupEntryName, fileURL: dbURL, compressionMethod: .deflate)
         let fm = FileManager.default
@@ -270,6 +272,13 @@ enum DataBackup {
             try settingsJSON.write(to: tmpJSON)
             defer { try? fm.removeItem(at: tmpJSON) }
             try archive.addEntry(with: BackupSettings.entryName, fileURL: tmpJSON, compressionMethod: .deflate)
+        }
+        // NOOP Trainer: its UserDefaults state (`TrainerBackup`), before the manifest like settings.json.
+        if let trainerPlist {
+            let tmpPlist = NoopScratch.file("trainer-\(UUID().uuidString).plist")
+            try trainerPlist.write(to: tmpPlist)
+            defer { try? fm.removeItem(at: tmpPlist) }
+            try archive.addEntry(with: TrainerBackup.entryName, fileURL: tmpPlist, compressionMethod: .deflate)
         }
         // #1410: manifest LAST (after the DB + optional settings) and ALWAYS written — even a legacy
         // nil-settings backup states which build produced it.
@@ -330,15 +339,17 @@ enum DataBackup {
     /// Test seam: write a `.noopbak` for an EXPLICIT source database (no checkpoint, no `StorePaths`),
     /// so a unit test can round-trip a throwaway SQLite through the exact ZIP container the app writes.
     /// `settings` (canonical `BackupSettings` keys) adds the `settings.json` entry; nil writes the
-    /// legacy single-entry ZIP — tests cover both shapes. Not used by app code; production goes
+    /// legacy single-entry ZIP — tests cover both shapes. `trainer` adds NOOP Trainer's `trainer.plist`
+    /// from those defaults. Not used by app code; production goes
     /// through `writeBackup(checkpoint:to:)`.
     static func writeBackupForTesting(databaseAt dbURL: URL, to dest: URL,
-                                      settings: [String: Any]? = nil) throws {
+                                      settings: [String: Any]? = nil, trainer: UserDefaults? = nil) throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
         try writeBackupZip(dbURL: dbURL, to: dest,
                            settingsJSON: settings.flatMap { BackupSettings.encode($0) },
-                           manifestJSON: currentManifestJSON())
+                           manifestJSON: currentManifestJSON(),
+                           trainerPlist: trainer.flatMap { TrainerBackup.snapshot(from: $0) })
     }
 
     // MARK: - Import
@@ -566,6 +577,11 @@ enum DataBackup {
                         settingsDefaults.removeObject(forKey: JournalCatalogBackupKeys.items)
                     }
                 }
+                // NOOP Trainer: bring back its own state when the backup carries it (the relaunch a
+                // restore forces reloads it). Backups without the entry leave the Trainer's state alone.
+                if let data = try? Data(contentsOf: extractedDir.appendingPathComponent(TrainerBackup.entryName)) {
+                    TrainerBackup.apply(data, to: settingsDefaults)
+                }
             }
             // #57 debug: record when a restore swapped the DB, so the export can correlate a restore with a
             // later write stall (a restore not followed by a relaunch is the #57 failure).
@@ -683,7 +699,7 @@ enum DataBackup {
             switch name {
             case backupEntryName:
                 limit = allowOversize ? Int64.max : maxBackupSQLiteBytes
-            case BackupSettings.entryName:
+            case BackupSettings.entryName, TrainerBackup.entryName:
                 limit = maxBackupSettingsBytes
             default:
                 continue
