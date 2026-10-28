@@ -137,6 +137,20 @@ final class RestDayTests: XCTestCase {
                        .restDay(nextRunFrom: calendar.startOfDay(for: date(28, 0))))
     }
 
+    func testTwoRestDaysAfterTheWeeksThirdRun() {
+        // Week 1 Day 3 on Monday the 26th: Tuesday and Wednesday rest, the next run is due Thursday.
+        let thursday = calendar.startOfDay(for: date(29, 0))
+        XCTAssertEqual(TrainingDay.on(date(26, 21), lastRun: date(26, 7), lastRunDay: 3, calendar: calendar),
+                       .ranToday(nextRunFrom: thursday))
+        XCTAssertEqual(TrainingDay.on(date(27, 9), lastRun: date(26, 7), lastRunDay: 3, calendar: calendar),
+                       .restDay(nextRunFrom: thursday))
+        XCTAssertEqual(TrainingDay.on(date(28, 9), lastRun: date(26, 7), lastRunDay: 3, calendar: calendar),
+                       .restDay(nextRunFrom: thursday))
+        XCTAssertEqual(TrainingDay.on(date(29, 6), lastRun: date(26, 7), lastRunDay: 3, calendar: calendar), .runDay)
+        // Days 1 and 2 keep the single rest day.
+        XCTAssertEqual(TrainingDay.on(date(28, 9), lastRun: date(26, 7), lastRunDay: 2, calendar: calendar), .runDay)
+    }
+
     func testAdviceBands() {
         XCTAssertEqual(RestAdvice.forCharge(20).band, .low)
         XCTAssertEqual(RestAdvice.forCharge(33.9).band, .low)

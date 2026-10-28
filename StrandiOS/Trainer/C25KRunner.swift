@@ -95,7 +95,20 @@ final class C25KRunner: ObservableObject {
     func logEntry(_ s: GuidedSession) -> C25KLogEntry? { log[Self.key(s)] }
 
     /// The latest run, including ones from before a week was restarted.
-    var lastRunDate: Date? { (Array(log.values) + Array(archive.values)).map(\.date).max() }
+    var lastRunDate: Date? { lastRun?.entry.date }
+
+    /// Which day of its week the latest run was (3 ends the week, so two rest days follow).
+    var lastRunDay: Int? { lastRun.flatMap { Self.day(fromKey: $0.key) } }
+
+    private var lastRun: (key: String, entry: C25KLogEntry)? {
+        (Array(log) + Array(archive)).max { $0.value.date < $1.value.date }.map { ($0.key, $0.value) }
+    }
+
+    /// The day from a log key: "w2d3" or the archived "w2d3#1" → 3.
+    static func day(fromKey key: String) -> Int? {
+        guard let d = key.firstIndex(of: "d") else { return nil }
+        return Int(key[key.index(after: d)...].prefix { $0.isNumber })
+    }
 
     // MARK: Restart a week (D53)
 

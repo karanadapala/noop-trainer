@@ -1,24 +1,30 @@
 import Foundation
 
-/// Where today sits in the C25K rhythm. The plan's one scheduling rule is a rest day between runs,
-/// so today depends only on when the last C25K run was.
+/// Where today sits in the C25K rhythm. Each week is run, rest, run, rest, run, rest, rest: one rest
+/// day after Days 1 and 2, two after Day 3, so the week fills seven days. Today depends only on the
+/// last C25K run and which day of its week that was.
 public enum TrainingDay: Equatable, Sendable {
-    /// No run yesterday or today: a good day for the next session.
+    /// The rest gap since the last run is over (or there's no run yet): a good day for the next session.
     case runDay
     /// Already ran today. `nextRunFrom` is the first day the next run is due.
     case ranToday(nextRunFrom: Date)
-    /// Ran yesterday: today is for recovery.
+    /// Inside the rest gap after the last run: today is for recovery.
     case restDay(nextRunFrom: Date)
 
-    public static func on(_ now: Date, lastRun: Date?, calendar: Calendar = .current) -> TrainingDay {
+    /// Rest days after a week's `day`: two after Day 3 (the end of the week), one otherwise.
+    public static func restDays(afterDay day: Int?) -> Int { day == 3 ? 2 : 1 }
+
+    public static func on(_ now: Date, lastRun: Date?, lastRunDay: Int? = nil,
+                          calendar: Calendar = .current) -> TrainingDay {
         guard let lastRun else { return .runDay }
+        let rest = restDays(afterDay: lastRunDay)
         let today = calendar.startOfDay(for: now)
         let runDay = calendar.startOfDay(for: lastRun)
-        let days = calendar.dateComponents([.day], from: runDay, to: today).day ?? 2
-        let nextRun = calendar.date(byAdding: .day, value: 2, to: runDay) ?? today
+        let days = calendar.dateComponents([.day], from: runDay, to: today).day ?? rest + 1
+        let nextRun = calendar.date(byAdding: .day, value: rest + 1, to: runDay) ?? today
         switch days {
         case ..<1: return .ranToday(nextRunFrom: nextRun)
-        case 1: return .restDay(nextRunFrom: nextRun)
+        case ...rest: return .restDay(nextRunFrom: nextRun)
         default: return .runDay
         }
     }

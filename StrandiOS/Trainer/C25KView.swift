@@ -32,7 +32,7 @@ struct C25KView: View {
 
     private var lastRun: Date? { runner.lastRunDate }
 
-    private var today: TrainingDay { TrainingDay.on(Date(), lastRun: lastRun) }
+    private var today: TrainingDay { TrainingDay.on(Date(), lastRun: lastRun, lastRunDay: runner.lastRunDay) }
 
     var body: some View {
         ScreenScaffold(title: "C25K Coach", subtitle: "Couch to 5K in nine weeks, coached by voice.") {
@@ -124,11 +124,20 @@ struct C25KView: View {
         case .runDay:
             EmptyView()
         case .restDay(let from):
-            restCard(title: "Rest day", reason: "You ran yesterday. Your next run is \(Self.dayPhrase(from)).",
-                     showsRoutine: true)
+            restCard(title: "Rest day", reason: restReason(nextRun: from), showsRoutine: true)
         case .ranToday(let from):
-            restCard(title: "Done for today", reason: "Nice work. Rest tomorrow; your next run is \(Self.dayPhrase(from)).",
+            let rest = TrainingDay.restDays(afterDay: runner.lastRunDay) == 2 ? "Two rest days now" : "Rest tomorrow"
+            restCard(title: "Done for today", reason: "Nice work. \(rest); your next run is \(Self.dayPhrase(from)).",
                      showsRoutine: false)
+        }
+    }
+
+    private func restReason(nextRun: Date) -> String {
+        let next = "Your next run is \(Self.dayPhrase(nextRun))."
+        switch (restDayInARow, TrainingDay.restDays(afterDay: runner.lastRunDay)) {
+        case (1, 2): return "You finished the week yesterday: two rest days. \(next)"
+        case (2, _): return "Second rest day after the week's last run. \(next)"
+        default: return "You ran yesterday. \(next)"
         }
     }
 
