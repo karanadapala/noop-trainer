@@ -100,10 +100,17 @@ struct RoutinePlayerView: View {
                 .font(StrandFont.subhead.weight(.semibold))
                 .foregroundStyle(StrandPalette.statusCritical)
                 .frame(maxWidth: .infinity)
-            Text("The screen stays on while the routine plays.")
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .frame(maxWidth: .infinity)
+            Toggle(isOn: $runner.keepScreenOn) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Keep the screen on")
+                        .font(StrandFont.footnote.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    Text("Not needed: lock the phone and the coach keeps talking.")
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+            .tint(StrandPalette.restColor)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)

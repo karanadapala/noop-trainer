@@ -11,6 +11,12 @@ import TrainerKit
 ///
 /// The countdown into a segment change is beeps, not words: short beeps at -3, -2, -1 and a long one
 /// on the change, generated in code so there is no sound file to ship.
+///
+/// A home routine records no workout, so nothing else keeps the app running once the phone locks.
+/// `keepAwake(true)` plays a silent loop under the cues for that. While it runs the session never goes
+/// inactive, and ducking only changes when a session is (re)activated, so each cue briefly re-activates
+/// the session with `.duckOthers` and the end of each cue re-activates it without: music dips for the
+/// cue only, as it does without the loop.
 @MainActor
 final class VoiceCoach: NSObject {
     private let synth = AVSpeechSynthesizer()
@@ -20,6 +26,8 @@ final class VoiceCoach: NSObject {
     private var beeping = false
     /// Speech that arrived while the countdown was still sounding; spoken once it ends.
     private var afterBeeps: String?
+    private var silentLoop: AVAudioPlayer?
+    private var ducking = false
 
     override init() {
         voice = VoiceCoach.bestVoice()
@@ -39,7 +47,7 @@ final class VoiceCoach: NSObject {
             return
         }
         if interrupt, synth.isSpeaking { synth.stopSpeaking(at: .word) }
-        try? session.setActive(true)
+        activate()
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = voice
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
@@ -57,7 +65,7 @@ final class VoiceCoach: NSObject {
             beeper?.prepareToPlay()
         }
         guard let beeper else { return }
-        try? session.setActive(true)
+        activate()
         beeper.currentTime = skip
         beeping = beeper.play(atTime: beeper.deviceCurrentTime + delay)
     }
@@ -75,9 +83,60 @@ final class VoiceCoach: NSObject {
         releaseSession()
     }
 
+    /// Keeps the app running with the phone locked (home routines) by playing silence under the cues.
+    func keepAwake(_ on: Bool) {
+        if on {
+            guard silentLoop == nil, let loop = try? AVAudioPlayer(data: Self.wav(Array(repeating: 0, count: 44_100))) else { return }
+            loop.numberOfLoops = -1
+            silentLoop = loop
+            ducking = true
+            setDucking(false)
+            NotificationCenter.default.addObserver(self, selector: #selector(interrupted(_:)),
+                                                   name: AVAudioSession.interruptionNotification, object: session)
+        } else {
+            guard let loop = silentLoop else { return }
+            NotificationCenter.default.removeObserver(self, name: AVAudioSession.interruptionNotification, object: session)
+            loop.stop()
+            silentLoop = nil
+            prepare()
+            releaseSession()
+        }
+    }
+
+    private func activate() {
+        if silentLoop != nil { setDucking(true) } else { try? session.setActive(true) }
+    }
+
     private func releaseSession() {
         guard !synth.isSpeaking, !beeping else { return }
+        if silentLoop != nil { setDucking(false); return }
         try? session.setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Re-activates the session with or without `.duckOthers`, pausing the silent loop across the gap.
+    private func setDucking(_ on: Bool) {
+        guard let loop = silentLoop else { return }
+        guard on != ducking else {
+            if !loop.isPlaying { loop.play() }
+            return
+        }
+        loop.pause()
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        try? session.setCategory(.playback, mode: .voicePrompt, options: on ? [.mixWithOthers, .duckOthers] : [.mixWithOthers])
+        try? session.setActive(true)
+        loop.play()
+        ducking = on
+    }
+
+    /// A call or alarm stops the loop; start it again when the interruption ends.
+    @objc private nonisolated func interrupted(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+        Task { @MainActor in
+            guard let loop = self.silentLoop else { return }
+            try? self.session.setActive(true)
+            loop.play()
+        }
     }
 
     private func beepsFinished() {
@@ -108,6 +167,12 @@ final class VoiceCoach: NSObject {
                 samples[first + n] = Int16(value * Double(Int16.max))
             }
         }
+        return wav(samples)
+    }
+
+    /// 16-bit mono 44.1 kHz WAV data.
+    static func wav(_ samples: [Int16]) -> Data {
+        let rate = 44_100
         var data = Data()
         func append<T: FixedWidthInteger>(_ v: T) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
         let bytes = UInt32(samples.count * 2)
@@ -145,7 +210,7 @@ final class VoiceCoach: NSObject {
 
 extension VoiceCoach: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in self.beepsFinished() }
+        Task { @MainActor in if player === self.beeper { self.beepsFinished() } }
     }
 }
 

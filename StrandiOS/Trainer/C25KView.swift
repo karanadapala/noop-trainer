@@ -226,7 +226,7 @@ struct C25KView: View {
                 NoopButton("Start the routine", systemImage: "play.fill", kind: .primary, fullWidth: true) {
                     if !routineRunner.start(routine) { blockedByWorkout = true }
                 }
-                Text("Voice-guided. Put the mat down near a wall; the screen stays on.")
+                Text("Voice-guided, so you can lock the phone. Put the mat down near a wall.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             }

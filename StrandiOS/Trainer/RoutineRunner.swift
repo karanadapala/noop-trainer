@@ -4,8 +4,9 @@ import UIKit
 
 /// Plays a voice-guided rest-day routine (D39), separate from `C25KRunner` so the run engine stays
 /// untouched. Like the runs, the timing is wall-clock based and every cue is pre-scheduled
-/// (`RoutineTimeline`). A home routine records no workout, so nothing keeps the app awake when the
-/// phone locks: the screen stays on while it plays, and after any gap only the latest change is said.
+/// (`RoutineTimeline`). A home routine records no workout, so the voice coach plays silence under the
+/// cues to keep the app running with the phone locked; the screen can stay on as an option. After any
+/// gap only the latest change is said.
 @MainActor
 final class RoutineRunner: ObservableObject {
     enum State: Equatable { case idle, running, paused, finished }
@@ -21,6 +22,13 @@ final class RoutineRunner: ObservableObject {
     @Published private(set) var benchmarks: [CalfBenchmark]
     /// This morning's "how do your legs feel?" (D38), with the day it was given.
     @Published private(set) var legs: (feel: LegFeel, date: Date)?
+    /// Off by default: the routine is voice-guided, so the phone can be locked.
+    @Published var keepScreenOn: Bool {
+        didSet {
+            UserDefaults.standard.set(keepScreenOn, forKey: Self.screenOnKey)
+            if state == .running || state == .paused { UIApplication.shared.isIdleTimerDisabled = keepScreenOn }
+        }
+    }
 
     private let voice = VoiceCoach()
     private var nextCue = 0
@@ -37,10 +45,12 @@ final class RoutineRunner: ObservableObject {
     private static let sessionsKey = "trainer.c25k.rest.sessions"
     private static let benchmarksKey = "trainer.c25k.rest.benchmarks"
     private static let legsKey = "trainer.c25k.rest.legs"
+    private static let screenOnKey = "trainer.c25k.rest.screenOn"
 
     private init() {
         sessions = Self.load(Self.sessionsKey) ?? []
         benchmarks = Self.load(Self.benchmarksKey) ?? []
+        keepScreenOn = UserDefaults.standard.bool(forKey: Self.screenOnKey)
         if let saved: LegsAnswer = Self.load(Self.legsKey) { legs = (saved.feel, saved.date) }
     }
 
@@ -112,7 +122,8 @@ final class RoutineRunner: ObservableObject {
         lastSpoken = nil
         state = .running
         voice.prepare()
-        UIApplication.shared.isIdleTimerDisabled = true
+        voice.keepAwake(true)
+        UIApplication.shared.isIdleTimerDisabled = keepScreenOn
         let t = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tickNow() }
         }
@@ -206,6 +217,7 @@ final class RoutineRunner: ObservableObject {
         timer?.invalidate()
         timer = nil
         UIApplication.shared.isIdleTimerDisabled = false
+        voice.keepAwake(false)
         guard let routine, let timeline else { return }
         let reached = Set(timeline.steps.filter { $0.start <= elapsed }.compactMap(\.exerciseID))
         let ids = routine.items.map(\.exercise.id)
