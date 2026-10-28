@@ -120,6 +120,14 @@ public struct RoutineTimeline: Equatable, Sendable {
         return steps[(i + 1)...].first { $0.kind == .change && $0.exerciseID != current }?.start ?? Double(totalSeconds)
     }
 
+    /// "One", "Twelve".
+    static func spelled(_ n: Int) -> String {
+        let f = NumberFormatter()
+        f.locale = Locale(identifier: "en_US")
+        f.numberStyle = .spellOut
+        return (f.string(from: n as NSNumber) ?? "\(n)").capitalizingFirst
+    }
+
     static func side(_ ex: Exercise, left: Bool) -> String {
         let limb = ex.id == "sidePlank" || ex.id == "sideLegRaise" ? "side" : "leg"
         return "\(left ? "left" : "right") \(limb)"
@@ -135,19 +143,20 @@ public struct RoutineTimeline: Equatable, Sendable {
     }
 
     /// The tempo: each rep's number on the way up and "down" for the 3-second lowering; for held reps
-    /// "lift" and "relax"; for holds, a halfway mark and beeps into the end.
+    /// "lift" and "relax"; for holds, a halfway mark and beeps into the end. The number is spelled out
+    /// and ends its own sentence: "1, up." ran together into one word ("wup").
     static func workCues(_ w: Dose.Work, from start: Double) -> [Cue] {
         switch w {
         case .reps(let n):
             return (0..<n).flatMap { k -> [Cue] in
                 let at = start + Double(k * Exercise.secondsPerRep)
-                return [Cue(at: at, text: k == n - 1 ? "Last one, up." : "\(k + 1), up.", priority: .status),
+                return [Cue(at: at, text: k == n - 1 ? "Last one. Up." : "\(Self.spelled(k + 1)). Up.", priority: .status),
                         Cue(at: at + 3, text: "Down.", priority: .status)]
             }
         case .heldReps(let n, let hold):
             return (0..<n).flatMap { k -> [Cue] in
                 let at = start + Double(k * (hold + 2))
-                return [Cue(at: at, text: k == n - 1 ? "Last one, lift." : "\(k + 1), lift.", priority: .status),
+                return [Cue(at: at, text: k == n - 1 ? "Last one. Lift." : "\(Self.spelled(k + 1)). Lift.", priority: .status),
                         Cue(at: at + Double(hold), text: "Relax.", priority: .status)]
             }
         case .hold(let s):

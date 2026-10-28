@@ -359,7 +359,9 @@ final class RoutineTimelineTests: XCTestCase {
         let calf = try XCTUnwrap(tl.steps.first { $0.exerciseID == "bentKneeCalf" && $0.kind == .work })
         XCTAssertTrue(calf.detail.contains("Left leg"), calf.detail)
         XCTAssertTrue(tl.cues.contains { $0.text == "Switch sides." })
-        XCTAssertTrue(tl.cues.contains { $0.text == "Last one, up." })
+        XCTAssertTrue(tl.cues.contains { $0.text == "Last one. Up." })
+        XCTAssertTrue(tl.cues.contains { $0.text == "One. Up." })
+        XCTAssertEqual(RoutineTimeline.spelled(12), "Twelve")
         XCTAssertTrue(tl.cues.contains { $0.text.hasPrefix("Next: Bent-knee calf raise.") })
     }
 
