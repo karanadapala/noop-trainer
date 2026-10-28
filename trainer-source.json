@@ -21,6 +21,15 @@
       "minOSVersion": "17.0",
       "versions": [
         {
+          "version": "1.0.1",
+          "buildVersion": "441",
+          "date": "2026-10-28",
+          "localizedDescription": "Beep countdown. Redesigned C25K screen. Rest days: pain check with automatic run hold,\n  voice-guided routines that work with the phone locked, sleep and eating tips, calf-raise test, Restart this week, rest-day dots. Trainer data now in backups.",
+          "downloadURL": "https://github.com/karanadapala/noop-trainer/releases/download/trainer-v1.0.1/NOOP-Trainer-v1.0.1.ipa",
+          "size": 22407212,
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "1.0.0",
           "buildVersion": "440",
           "date": "2026-10-27",
@@ -30,12 +39,12 @@
           "minOSVersion": "17.0"
         }
       ],
-      "version": "1.0.0",
-      "buildVersion": "440",
-      "versionDate": "2026-10-27",
-      "versionDescription": "First NOOP Trainer release: voice-guided C25K coach with a 9-week progress tracker.",
-      "downloadURL": "https://github.com/karanadapala/noop-trainer/releases/download/trainer-v1.0.0/NOOP-Trainer-v1.0.0.ipa",
-      "size": 22052945
+      "version": "1.0.1",
+      "buildVersion": "441",
+      "versionDate": "2026-10-28",
+      "versionDescription": "Beep countdown. Redesigned C25K screen. Rest days: pain check with automatic run hold,\n  voice-guided routines that work with the phone locked, sleep and eating tips, calf-raise test, Restart this week, rest-day dots. Trainer data now in backups.",
+      "downloadURL": "https://github.com/karanadapala/noop-trainer/releases/download/trainer-v1.0.1/NOOP-Trainer-v1.0.1.ipa",
+      "size": 22407212
     }
   ],
   "news": []
