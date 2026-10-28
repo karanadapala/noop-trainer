@@ -374,3 +374,44 @@ final class RoutineTimelineTests: XCTestCase {
         XCTAssertNotEqual(landed.exerciseID, first.exerciseID)
     }
 }
+
+final class RestCardExtrasTests: XCTestCase {
+    let cal: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Europe/London")!
+        return c
+    }()
+
+    func day(_ d: Int, hour: Int = 9) -> Date {
+        cal.date(from: DateComponents(year: 2026, month: 10, day: d, hour: hour))!
+    }
+
+    func testSleepTipUsesLastNight() {
+        XCTAssertTrue(RestTip.forRestDay(sleepMinutes: 370)[0].text.hasPrefix("You slept 6 h 10 min. Aim for 7 hours"))
+        XCTAssertTrue(RestTip.forRestDay(sleepMinutes: 460)[0].text.contains("Keep that up"))
+        XCTAssertTrue(RestTip.forRestDay(sleepMinutes: nil)[0].text.hasPrefix("Aim for 7 hours"))
+        XCTAssertFalse(RestTip.forRestDay(sleepMinutes: nil).contains { $0.text.lowercased().contains("weight") })
+    }
+
+    func testRestDaysGoToTheLatestEarlierRun() {
+        let runs = ["w1d3": day(26, hour: 7), "w1d2": day(24)]
+        // Oct 25 follows w1d2; Oct 27 (twice the same day) follows w1d3; a routine on a run day doesn't count.
+        let rest = [day(25), day(27), day(27, hour: 18), day(24, hour: 20)]
+        XCTAssertEqual(RestDayProgress.restDaysAfterRuns(runs, restDates: rest, calendar: cal), ["w1d2": 1, "w1d3": 1])
+    }
+
+    func testRestartPicksTheCurrentOrJustFinishedWeek() throws {
+        let w2d1 = try XCTUnwrap(C25K.session(week: 2, day: 1))
+        let w2d2 = try XCTUnwrap(C25K.session(week: 2, day: 2))
+        let w1d1 = try XCTUnwrap(C25K.session(week: 1, day: 1))
+        // Week 1 done, nothing of week 2 yet: repeat week 1.
+        XCTAssertEqual(WeekRestart.week(next: w2d1, allDone: false) { $0.week == 1 }, 1)
+        // Week 2 started: restart week 2.
+        XCTAssertEqual(WeekRestart.week(next: w2d2, allDone: false) { $0.week == 1 || $0 == w2d1 }, 2)
+        XCTAssertNil(WeekRestart.week(next: w1d1, allDone: false) { _ in false })
+        XCTAssertNil(WeekRestart.label(attempt: 1))
+        XCTAssertEqual(WeekRestart.label(attempt: 2), "2nd time")
+        XCTAssertEqual(WeekRestart.label(attempt: 3), "3rd time")
+        XCTAssertEqual(WeekRestart.label(attempt: 11), "11th time")
+    }
+}

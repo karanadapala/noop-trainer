@@ -24,6 +24,10 @@ final class C25KRunner: ObservableObject {
     @Published private(set) var log: [String: C25KLogEntry]
     /// Every "anything hurting?" answer (D49), oldest first.
     @Published private(set) var pain: [PainEntry]
+    /// Times each week was restarted (D53); week 2 restarted once is on its 2nd time.
+    @Published private(set) var restarts: [Int: Int]
+    /// Runs from earlier times through a restarted week, keyed "w2d1#1" (first time through).
+    private var archive: [String: C25KLogEntry]
 
     private weak var model: AppModel?
     private let voice = VoiceCoach()
@@ -40,6 +44,8 @@ final class C25KRunner: ObservableObject {
 
     private static let completedKey = "trainer.c25k.completed"
     private static let painKey = "trainer.c25k.pain"
+    private static let restartsKey = "trainer.c25k.restarts"
+    private static let archiveKey = "trainer.c25k.logArchive"
     /// A cue more than this late is dropped rather than spoken out of context.
     private static let staleAfter: TimeInterval = 5
     private static let tick: TimeInterval = 0.5
@@ -49,6 +55,10 @@ final class C25KRunner: ObservableObject {
         log = C25KLogStore.load()
         pain = UserDefaults.standard.data(forKey: Self.painKey)
             .flatMap { try? JSONDecoder().decode([PainEntry].self, from: $0) } ?? []
+        restarts = UserDefaults.standard.data(forKey: Self.restartsKey)
+            .flatMap { try? JSONDecoder().decode([Int: Int].self, from: $0) } ?? [:]
+        archive = UserDefaults.standard.data(forKey: Self.archiveKey)
+            .flatMap { try? JSONDecoder().decode([String: C25KLogEntry].self, from: $0) } ?? [:]
     }
 
     // MARK: Pain
@@ -83,6 +93,33 @@ final class C25KRunner: ObservableObject {
     }
 
     func logEntry(_ s: GuidedSession) -> C25KLogEntry? { log[Self.key(s)] }
+
+    /// The latest run, including ones from before a week was restarted.
+    var lastRunDate: Date? { (Array(log.values) + Array(archive.values)).map(\.date).max() }
+
+    // MARK: Restart a week (D53)
+
+    /// 1 the first time through a week, 2 after one restart.
+    func attempt(week: Int) -> Int { (restarts[week] ?? 0) + 1 }
+
+    var restartableWeek: Int? {
+        WeekRestart.week(next: nextSession, allDone: C25K.all.allSatisfy(isCompleted), isDone: isCompleted)
+    }
+
+    /// Runs the week again: its days come up as not done, and the earlier runs move to the archive.
+    func restartWeek(_ week: Int) {
+        let round = attempt(week: week)
+        for d in 1...C25K.daysPerWeek {
+            guard let s = C25K.session(week: week, day: d) else { continue }
+            if let entry = log.removeValue(forKey: Self.key(s)) { archive["\(Self.key(s))#\(round)"] = entry }
+            completed.remove(Self.key(s))
+        }
+        restarts[week] = round
+        C25KLogStore.save(log)
+        UserDefaults.standard.set(Array(completed).sorted(), forKey: Self.completedKey)
+        if let data = try? JSONEncoder().encode(restarts) { UserDefaults.standard.set(data, forKey: Self.restartsKey) }
+        if let data = try? JSONEncoder().encode(archive) { UserDefaults.standard.set(data, forKey: Self.archiveKey) }
+    }
 
     /// Counts an existing workout as this day's session.
     func link(_ s: GuidedSession, to entry: C25KLogEntry) {

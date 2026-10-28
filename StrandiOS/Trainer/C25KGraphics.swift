@@ -73,10 +73,14 @@ struct SessionStrip: View {
 
 /// The whole program as 27 bars, one per session, grouped by week. A bar's height is that session's
 /// longest continuous run (square-root scale, so the early 1–5 minute weeks still read as a climb).
+/// A small dot after a bar is a rest-day routine done before the next run (D45): run, rest, run.
 struct PlanLadder: View {
     let isDone: (GuidedSession) -> Bool
     let next: GuidedSession
     let selectedWeek: Int
+    /// Rest days with a routine after each run, by session key ("w2d1").
+    var restAfter: [String: Int] = [:]
+    var attempt: (Int) -> Int = { _ in 1 }
     let onSelectWeek: (Int) -> Void
 
     private let barArea: CGFloat = 64
@@ -95,9 +99,12 @@ struct PlanLadder: View {
     private func week(_ w: Int) -> some View {
         let isSelected = w == selectedWeek
         return VStack(spacing: 6) {
-            HStack(alignment: .bottom, spacing: 2) {
+            HStack(alignment: .bottom, spacing: 1.5) {
                 ForEach(1...C25K.daysPerWeek, id: \.self) { d in
-                    if let s = C25K.session(week: w, day: d) { bar(s) }
+                    if let s = C25K.session(week: w, day: d) {
+                        bar(s)
+                        restDots(restAfter["w\(w)d\(d)"] ?? 0)
+                    }
                 }
             }
             .frame(height: barArea, alignment: .bottom)
@@ -130,9 +137,23 @@ struct PlanLadder: View {
             .frame(height: h)
     }
 
+    /// Up to two stacked dots: one or two rest days with a routine after this run.
+    private func restDots(_ count: Int) -> some View {
+        VStack(spacing: 2) {
+            ForEach(0..<min(count, 2), id: \.self) { _ in
+                Circle().fill(StrandPalette.restColor).frame(width: 3, height: 3)
+            }
+        }
+        .frame(width: 3)
+    }
+
     private func weekLabel(_ w: Int) -> String {
         let done = (1...C25K.daysPerWeek).compactMap { C25K.session(week: w, day: $0) }.filter(isDone).count
-        return "Week \(w), \(done) of \(C25K.daysPerWeek) done"
+        let rest = (1...C25K.daysPerWeek).map { restAfter["w\(w)d\($0)"] ?? 0 }.reduce(0, +)
+        var label = "Week \(w), \(done) of \(C25K.daysPerWeek) done"
+        if rest > 0 { label += ", \(rest) rest-day routine\(rest == 1 ? "" : "s")" }
+        if let again = WeekRestart.label(attempt: attempt(w)) { label += ", \(again)" }
+        return label
     }
 
     static func longestRun(_ s: GuidedSession) -> Int {

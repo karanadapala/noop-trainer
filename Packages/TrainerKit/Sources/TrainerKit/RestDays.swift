@@ -66,3 +66,27 @@ public struct RestAdvice: Equatable, Sendable {
             : nil
     }
 }
+
+/// The sleep and eating lines on the rest card (D54, research 03 §7g–7h). No weight-loss advice.
+public struct RestTip: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable { case sleep, food }
+
+    public let kind: Kind
+    public let text: String
+
+    /// Last night's sleep, when the strap recorded it, sharpens the sleep line; 7 hours is the floor
+    /// from the athlete consensus (Walsh et al., BJSM 2021).
+    public static func forRestDay(sleepMinutes: Double?) -> [RestTip] {
+        let sleep: String
+        if let m = sleepMinutes, m > 0 {
+            let slept = "You slept \(Int(m) / 60) h \(Int(m) % 60) min."
+            sleep = m < 420
+                ? "\(slept) Aim for 7 hours or more tonight; your legs repair while you sleep."
+                : "\(slept) Keep that up tonight; your legs repair while you sleep."
+        } else {
+            sleep = "Aim for 7 hours or more tonight; your legs repair while you sleep."
+        }
+        return [RestTip(kind: .sleep, text: sleep),
+                RestTip(kind: .food, text: "Eat enough today, with some protein at each meal. Running on too little food raises the risk of stress injuries.")]
+    }
+}

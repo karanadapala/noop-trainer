@@ -22,15 +22,15 @@ struct C25KView: View {
     @State private var confirmRunAnyway = false
     @State private var askedAfterRun = false
     @State private var routineChoice: RoutineVariant?
+    @State private var confirmRestart: Int?
+    @State private var takingCalfTest = false
 
     private var picked: GuidedSession? { C25K.session(week: week, day: day) }
     private var isPickedNext: Bool { week == runner.nextSession.week && day == runner.nextSession.day }
     private var charge: Double? { repo.today?.recovery }
     private var painState: PainState { runner.painState }
 
-    private var lastRun: Date? {
-        runner.log.values.map(\.date).max()
-    }
+    private var lastRun: Date? { runner.lastRunDate }
 
     private var today: TrainingDay { TrainingDay.on(Date(), lastRun: lastRun) }
 
@@ -69,6 +69,22 @@ struct C25KView: View {
             PainReportSheet(title: "Something hurts") { runner.recordPain($0) }
         }
         .sheet(isPresented: $showingRedFlags) { RedFlagSheet() }
+        .sheet(isPresented: $takingCalfTest) {
+            CalfTestSheet(last: routineRunner.benchmarks.last, painful: calfTestBlocked) { left, right in
+                routineRunner.addBenchmark(left: left, right: right)
+            }
+        }
+        .confirmationDialog(confirmRestart.map { "Restart week \($0)?" } ?? "", isPresented: Binding(
+            get: { confirmRestart != nil }, set: { if !$0 { confirmRestart = nil } }), titleVisibility: .visible) {
+            Button("Restart week \(confirmRestart ?? 1)") {
+                if let w = confirmRestart { runner.restartWeek(w) }
+                confirmRestart = nil
+                selectNext()
+            }
+            Button("Cancel", role: .cancel) { confirmRestart = nil }
+        } message: {
+            Text("Its runs come up again, labelled \"\(WeekRestart.label(attempt: runner.attempt(week: confirmRestart ?? 1) + 1) ?? "")\". The runs you've done are kept, and the rest-day levels hold until you're through it.")
+        }
         .fullScreenCover(isPresented: Binding(get: { routineRunner.state != .idle }, set: { _ in })) {
             RoutinePlayerView()
         }
@@ -147,11 +163,66 @@ struct C25KView: View {
                     Divider().overlay(StrandPalette.hairline)
                     routineSection
                 }
+                Divider().overlay(StrandPalette.hairline)
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(RestTip.forRestDay(sleepMinutes: repo.today?.totalSleepMin), id: \.text) { tip in
+                        tipRow(tip)
+                    }
+                }
+                if showsRoutine, calfTestDue { calfTestRow }
                 if painState.active.isEmpty {
                     textLink("Something hurts", systemImage: "bandage") { reportingPain = true }
                 }
             }
         }
+    }
+
+    private func tipRow(_ tip: RestTip) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: tip.kind == .sleep ? "moon.zzz" : "fork.knife")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.restColor)
+                .frame(width: 20)
+            Text(tip.text)
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: Calf-raise test (D57)
+
+    /// Not while calves or feet hurt: a test to fatigue would load them.
+    private var calfTestBlocked: Bool { !Set(painState.active).isDisjoint(with: [.calves, .feet]) }
+
+    private var calfTestDue: Bool {
+        !calfTestBlocked && routineRunner.legsToday != .limiting
+            && RestDayProgress.benchmarkDue(routineRunner.benchmarks, now: Date())
+    }
+
+    private var calfTestRow: some View {
+        Button { takingCalfTest = true } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(routineRunner.benchmarks.isEmpty ? "Calf-raise test" : "Calf-raise test due")
+                        .font(StrandFont.subhead.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("About 3 minutes, every 3 weeks. You count, the coach keeps the numbers.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(StrandPalette.surfaceInset))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: Rest-day routine (D37–D48)
@@ -177,7 +248,7 @@ struct C25KView: View {
         return RoutineBuilder.Input(
             charge: charge, legs: legs, pain: painState, restDayInARow: restDayInARow, programWeek: week,
             stages: RestDayProgress.stages(log: routineRunner.sessions, pain: runner.pain, programWeek: week,
-                                           repeatingWeek: false),
+                                           repeatingWeek: runner.attempt(week: week) > 1),
             lastStrengthBlock: routineRunner.lastStrengthBlock, rotation: routineRunner.sessions.count)
     }
 
@@ -335,6 +406,9 @@ struct C25KView: View {
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let w = runner.restartableWeek {
+                        textLink("Restart week \(w)", systemImage: "arrow.counterclockwise") { confirmRestart = w }
+                    }
                 }
                 if state.showRedFlags || state.isOnHold {
                     NoopButton("When to get it checked", systemImage: "cross.case", kind: .secondary) { showingRedFlags = true }
@@ -371,9 +445,20 @@ struct C25KView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Week \(week) · Day \(day)")
-                        .font(StrandFont.rounded(30))
-                        .foregroundStyle(StrandPalette.textPrimary)
+                    HStack(alignment: .center, spacing: 10) {
+                        Text("Week \(week) · Day \(day)")
+                            .font(StrandFont.rounded(30))
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        if let again = WeekRestart.label(attempt: runner.attempt(week: week)) {
+                            Text(again)
+                                .font(StrandFont.caption.weight(.semibold))
+                                .foregroundStyle(StrandPalette.textPrimary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(StrandPalette.surfaceOverlay))
+                                .overlay(Capsule().stroke(StrandPalette.hairlineStrong, lineWidth: 1))
+                        }
+                    }
                     if let picked {
                         Text(Self.shape(of: picked))
                             .font(StrandFont.subhead)
@@ -497,6 +582,10 @@ struct C25KView: View {
                 }
             }
             Button { reportingPain = true } label: { Label("Something hurts…", systemImage: "bandage") }
+            if let w = runner.restartableWeek {
+                Button { confirmRestart = w } label: { Label("Restart week \(w)…", systemImage: "arrow.counterclockwise") }
+            }
+            Button { takingCalfTest = true } label: { Label("Calf-raise test…", systemImage: "figure.stand") }
             Divider()
             Button {
                 if !runner.start(C25K.rehearsal, model: model) { blockedByWorkout = true }
@@ -527,7 +616,10 @@ struct C25KView: View {
                         .font(StrandFont.subhead.monospacedDigit())
                         .foregroundStyle(StrandPalette.textSecondary)
                 }
-                PlanLadder(isDone: runner.isCompleted, next: runner.nextSession, selectedWeek: week) { w in
+                PlanLadder(isDone: runner.isCompleted, next: runner.nextSession, selectedWeek: week,
+                           restAfter: RestDayProgress.restDaysAfterRuns(runner.log.mapValues(\.date),
+                                                                        restDates: routineRunner.sessions.map(\.date)),
+                           attempt: runner.attempt(week:)) { w in
                     week = w
                     day = (1...C25K.daysPerWeek).first { d in
                         C25K.session(week: w, day: d).map { !runner.isCompleted($0) } ?? false

@@ -85,4 +85,16 @@ public enum RestDayProgress {
                                            to: calendar.startOfDay(for: now)).day ?? 0
         return days >= 21
     }
+
+    /// How many rest days with a routine followed each run, for the dots on the plan (D45). Each rest
+    /// day counts once, towards the latest run on an earlier calendar day.
+    public static func restDaysAfterRuns(_ runs: [String: Date], restDates: [Date],
+                                         calendar: Calendar = .current) -> [String: Int] {
+        let ordered = runs.map { (key: $0.key, day: calendar.startOfDay(for: $0.value)) }.sorted { $0.day < $1.day }
+        var counts: [String: Int] = [:]
+        for day in Set(restDates.map { calendar.startOfDay(for: $0) }) {
+            if let run = ordered.last(where: { $0.day < day }) { counts[run.key, default: 0] += 1 }
+        }
+        return counts
+    }
 }
