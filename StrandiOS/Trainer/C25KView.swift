@@ -514,6 +514,8 @@ struct C25KView: View {
                         .foregroundStyle(StrandPalette.statusWarning)
                 }
 
+                halfwayChooser
+
                 VStack(spacing: 10) {
                     NoopButton(onHold ? "Run anyway" : startTitle, systemImage: "figure.run",
                                kind: pickedDone || onHold ? .secondary : .primary, fullWidth: true) {
@@ -529,6 +531,70 @@ struct C25KView: View {
     }
 
     private var onHold: Bool { painState.isOnHold }
+
+    // MARK: Halfway cue (D83)
+
+    private var halfwayChooser: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // The label moves above the chips when larger text doesn't fit on one line.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    halfwayTitle
+                    Spacer(minLength: 4)
+                    halfwayChips
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    halfwayTitle
+                    HStack(spacing: 8) { halfwayChips }
+                }
+            }
+            Text(Self.halfwayDetail(runner.halfway))
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var halfwayTitle: some View {
+        Text("Halfway")
+            .font(StrandFont.subhead.weight(.semibold))
+            .foregroundStyle(StrandPalette.textSecondary)
+    }
+
+    private var halfwayChips: some View {
+        ForEach(HalfwayCue.allCases, id: \.self) { option in
+            let selected = runner.halfway == option
+            Button { runner.halfway = option } label: {
+                Text(Self.halfwayLabel(option))
+                    .font(StrandFont.footnote.weight(.semibold))
+                    .foregroundStyle(selected ? StrandPalette.textPrimary : StrandPalette.textSecondary)
+                    .fixedSize()
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(selected ? StrandPalette.surfaceOverlay : StrandPalette.surfaceInset))
+                    .overlay(Capsule().stroke(selected ? StrandPalette.hairlineStrong : .clear, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Halfway: \(Self.halfwayLabel(option))")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+        }
+    }
+
+    static func halfwayLabel(_ option: HalfwayCue) -> String {
+        switch option {
+        case .outAndBack: return "Out and back"
+        case .loop: return "Loop"
+        case .off: return "Off"
+        }
+    }
+
+    static func halfwayDetail(_ option: HalfwayCue) -> String {
+        switch option {
+        case .outAndBack: return "At the halfway point: \"Halfway. Turn around.\" and the distance so far, so the way back ends at home."
+        case .loop: return "At the halfway point: \"Halfway done.\" For laps and treadmills."
+        case .off: return "No halfway cue."
+        }
+    }
 
     private func startPicked() {
         guard let picked else { return }

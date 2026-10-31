@@ -82,6 +82,104 @@ final class CueTimelineTests: XCTestCase {
         XCTAssertTrue(cues.contains { $0.text == "Run for 25 minutes. Steady and easy." })
         XCTAssertTrue(cues.contains { $0.text == "One minute left." })
     }
+
+    func testHalfwayJoinsTheSegmentChangeAtTheMiddle() throws {
+        // Week 2: 31 minutes, so halfway is 15:30, exactly when run 4 starts.
+        let s = try XCTUnwrap(C25K.session(week: 2, day: 1))
+        let cues = CueTimeline.cues(for: s, halfway: .outAndBack)
+        let half = try XCTUnwrap(cues.first { $0.text.hasPrefix("Halfway. Turn") })
+        XCTAssertEqual(half.at, 930)
+        XCTAssertEqual(half.priority, .transition)
+        XCTAssertEqual(half.text, "Halfway. Turn around. Run 4 of 6. Run for 90 seconds.")
+        XCTAssertEqual(half.spoken(distanceSoFar: "1.4 kilometres"),
+                       "Halfway. Turn around. 1.4 kilometres so far. Run 4 of 6. Run for 90 seconds.")
+        XCTAssertEqual(half.spoken(distanceSoFar: nil), half.text)
+        XCTAssertEqual(cues.filter { $0.text.contains("Halfway") }.count, 1)
+        // Off leaves the cues exactly as before.
+        XCTAssertEqual(CueTimeline.cues(for: s, halfway: .off), CueTimeline.cues(for: s))
+        XCTAssertTrue(CueTimeline.cues(for: s, halfway: .loop).contains { $0.text.hasPrefix("Halfway done. Run 4") })
+    }
+
+    func testHalfwayReplacesTheLongRunsOwnHalfway() throws {
+        // Week 9: 5 + 30 + 5 minutes; the run's halfway and the session's fall together at 20:00.
+        let cues = CueTimeline.cues(for: try XCTUnwrap(C25K.session(week: 9, day: 1)), halfway: .outAndBack)
+        let halves = cues.filter { $0.text.contains("Halfway") }
+        XCTAssertEqual(halves.map(\.text), ["Halfway. Turn around."])
+        XCTAssertEqual(halves.first?.at, 1200)
+        XCTAssertEqual(halves.first?.spoken(distanceSoFar: "3 kilometres"), "Halfway. Turn around. 3 kilometres so far.")
+    }
+
+    func testHalfwayStandsAloneAwayFromOtherCues() throws {
+        // Week 4: 5 + 21.5 + 5 minutes, halfway 15:45, which is 75 s into the 2.5-minute walk.
+        let cues = CueTimeline.cues(for: try XCTUnwrap(C25K.session(week: 4, day: 1)), halfway: .loop)
+        let half = try XCTUnwrap(cues.first { $0.text.hasPrefix("Halfway done") })
+        XCTAssertEqual(half.at, 945)
+        XCTAssertEqual(half.text, "Halfway done.")
+        XCTAssertEqual(half.priority, .status)
+        // The 5-minute runs keep their own halfway (12:00, 24:00); the warm-up and cool-down have none.
+        XCTAssertEqual(cues.filter { $0.text.contains("alfway") }.map(\.text),
+                       ["Halfway through this run.", "Halfway done.", "Halfway through this run."])
+    }
+
+    func testSpokenDistance() {
+        XCTAssertNil(CueTimeline.spokenDistance(metres: 20, miles: false))
+        XCTAssertEqual(CueTimeline.spokenDistance(metres: 846, miles: false), "850 metres")
+        XCTAssertEqual(CueTimeline.spokenDistance(metres: 1_000, miles: false), "1 kilometre")
+        XCTAssertEqual(CueTimeline.spokenDistance(metres: 1_430, miles: false), "1.4 kilometres")
+        XCTAssertEqual(CueTimeline.spokenDistance(metres: 3_020, miles: false), "3 kilometres")
+        XCTAssertEqual(CueTimeline.spokenDistance(metres: 1_200, miles: true), "0.7 miles")
+        XCTAssertEqual(CueTimeline.spokenDistance(metres: 1_609, miles: true), "1 mile")
+    }
+}
+
+final class SpeedGuardTests: XCTestCase {
+    /// One sample a second at a steady speed per segment.
+    func samples(_ s: GuidedSession, run: Double, walk: Double) -> [DistanceSample] {
+        var out: [DistanceSample] = []
+        var d = 0.0
+        for t in 0...s.totalSeconds {
+            out.append(DistanceSample(t: Double(t), metres: d))
+            let seg = s.segments[s.segmentIndex(at: Double(t)) ?? s.segments.count - 1]
+            d += seg.kind.isRun ? run : walk
+        }
+        return out
+    }
+
+    func testEasyPaceIsTheMedianOfEarlierRuns() throws {
+        let s = try XCTUnwrap(C25K.session(week: 2, day: 1))
+        let speeds = SpeedGuard.runSpeeds(session: s, samples: samples(s, run: 2.5, walk: 1.4))
+        XCTAssertEqual(speeds.count, 6)
+        XCTAssertTrue(speeds.allSatisfy { abs($0 - 2.5) < 0.01 })
+        XCTAssertEqual(SpeedGuard.easySpeed([2.4, 2.6, 3.0]), 2.6)
+        XCTAssertEqual(SpeedGuard.easySpeed([2.4, 2.6]), 2.5)
+        XCTAssertNil(SpeedGuard.easySpeed([]))
+    }
+
+    func testRecentSpeedNeedsEnoughFixes() {
+        let steady = (0...30).map { DistanceSample(t: Double($0), metres: Double($0) * 3) }
+        XCTAssertEqual(SpeedGuard.recentSpeed(steady, at: 30) ?? 0, 3, accuracy: 0.001)
+        // Only 5 seconds of fixes in the last 15: no verdict.
+        let sparse = [DistanceSample(t: 25, metres: 75), DistanceSample(t: 30, metres: 90)]
+        XCTAssertNil(SpeedGuard.recentSpeed(sparse, at: 30))
+        // Distance going backwards (a restored route): no verdict.
+        let reset = [DistanceSample(t: 15, metres: 400), DistanceSample(t: 30, metres: 10)]
+        XCTAssertNil(SpeedGuard.recentSpeed(reset, at: 30))
+    }
+
+    func testWarnsOncePerRunOnlyWhenTenPercentFaster() {
+        func warn(_ kind: Segment.Kind = .run, into: Double = 40, speed: Double? = 2.9,
+                  easy: Double? = 2.5, warned: Bool = false) -> Bool {
+            SpeedGuard.shouldWarn(segment: kind, secondsIntoSegment: into, speed: speed,
+                                  easySpeed: easy, warnedThisRun: warned)
+        }
+        XCTAssertTrue(warn())
+        XCTAssertFalse(warn(speed: 2.7))     // 8% faster
+        XCTAssertFalse(warn(warned: true))
+        XCTAssertFalse(warn(into: 10))       // still speeding up from the walk
+        XCTAssertFalse(warn(.walk))
+        XCTAssertFalse(warn(easy: nil))      // no earlier runs yet
+        XCTAssertFalse(warn(speed: nil))     // weak GPS
+    }
 }
 
 final class HeartRateGuardTests: XCTestCase {

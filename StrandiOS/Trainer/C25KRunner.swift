@@ -28,6 +28,10 @@ final class C25KRunner: ObservableObject {
     @Published private(set) var restarts: [Int: Int]
     /// Runs from earlier times through a restarted week, keyed "w2d1#1" (first time through).
     private var archive: [String: C25KLogEntry]
+    /// What the coach says halfway through the session (D83), remembered between runs.
+    @Published var halfway: HalfwayCue {
+        didSet { UserDefaults.standard.set(halfway.rawValue, forKey: Self.halfwayKey) }
+    }
 
     private weak var model: AppModel?
     private let voice = VoiceCoach()
@@ -39,6 +43,11 @@ final class C25KRunner: ObservableObject {
     private var pausedTotal: TimeInterval = 0
     private var lastCorrectionAt: TimeInterval?
     private var lastTransitionAt: TimeInterval = -.infinity
+    /// GPS distance through this session, for the speed warning (D84).
+    private var distanceSamples: [DistanceSample] = []
+    /// Median run speed of earlier coached runs; nil until there are some.
+    private var easySpeed: Double?
+    private var speedWarnedSegment: Int?
     private var timer: Timer?
     private var subscriptions = Set<AnyCancellable>()
 
@@ -46,6 +55,7 @@ final class C25KRunner: ObservableObject {
     private static let painKey = "trainer.c25k.pain"
     private static let restartsKey = "trainer.c25k.restarts"
     private static let archiveKey = "trainer.c25k.logArchive"
+    private static let halfwayKey = "trainer.c25k.halfway"
     /// A cue more than this late is dropped rather than spoken out of context.
     private static let staleAfter: TimeInterval = 5
     private static let tick: TimeInterval = 0.5
@@ -59,6 +69,7 @@ final class C25KRunner: ObservableObject {
             .flatMap { try? JSONDecoder().decode([Int: Int].self, from: $0) } ?? [:]
         archive = UserDefaults.standard.data(forKey: Self.archiveKey)
             .flatMap { try? JSONDecoder().decode([String: C25KLogEntry].self, from: $0) } ?? [:]
+        halfway = UserDefaults.standard.string(forKey: Self.halfwayKey).flatMap(HalfwayCue.init) ?? .outAndBack
     }
 
     // MARK: Pain
@@ -108,6 +119,33 @@ final class C25KRunner: ObservableObject {
     static func day(fromKey key: String) -> Int? {
         guard let d = key.firstIndex(of: "d") else { return nil }
         return Int(key[key.index(after: d)...].prefix { $0.isNumber })
+    }
+
+    /// The session a log key belongs to: "w2d3" or "w2d3#1" → week 2, day 3.
+    static func session(fromKey key: String) -> GuidedSession? {
+        guard key.hasPrefix("w"), let day = day(fromKey: key),
+              let week = Int(key.dropFirst().prefix { $0.isNumber }) else { return nil }
+        return C25K.session(week: week, day: day)
+    }
+
+    /// The user's own easy pace (D84): the median speed of the runs in earlier coached sessions, read
+    /// from their GPS routes. Linked workouts are left out, since their timing may not match the plan.
+    private func earlierEasySpeed() -> Double? {
+        let speeds = (Array(log) + Array(archive)).flatMap { key, entry -> [Double] in
+            guard entry.source == .coach, let s = Self.session(fromKey: key),
+                  let points = RoutePointStore.load(for: RouteStore.key(startTs: entry.startTs, sport: "Running"))
+            else { return [] }
+            var metres = 0.0
+            var last: RouteMath.LatLng?
+            let samples = points.map { p -> DistanceSample in
+                let here = RouteMath.LatLng(p.lat, p.lon)
+                if let last { metres += RouteMath.haversineMeters(last, here) }
+                last = here
+                return DistanceSample(t: Double(p.tMs) / 1000 - Double(entry.startTs), metres: metres)
+            }
+            return SpeedGuard.runSpeeds(session: s, samples: samples)
+        }
+        return SpeedGuard.easySpeed(speeds)
     }
 
     // MARK: Restart a week (D53)
@@ -173,7 +211,10 @@ final class C25KRunner: ObservableObject {
         guard state == .idle || state == .finished, model.activeWorkout == nil else { return false }
         self.model = model
         session = s
-        cues = CueTimeline.cues(for: s)
+        cues = CueTimeline.cues(for: s, halfway: halfway)
+        distanceSamples = []
+        easySpeed = s.week > 0 ? earlierEasySpeed() : nil
+        speedWarnedSegment = nil
         nextCue = 0
         startedAt = Date()
         pausedAt = nil
@@ -194,7 +235,11 @@ final class C25KRunner: ObservableObject {
         RunLoop.main.add(t, forMode: .common)
         timer = t
         model.$bpm.sink { [weak self] _ in self?.tick() }.store(in: &subscriptions)
-        model.gpsRecorder.$distanceM.sink { [weak self] _ in self?.tick() }.store(in: &subscriptions)
+        model.gpsRecorder.$distanceM.sink { [weak self] metres in
+            guard let self, self.state == .running else { return }
+            self.distanceSamples.append(DistanceSample(t: self.activeElapsed, metres: metres))
+            self.tick()
+        }.store(in: &subscriptions)
         tick()
         return true
     }
@@ -243,6 +288,7 @@ final class C25KRunner: ObservableObject {
         segmentIndex = session.segmentIndex(at: t)
 
         speakDueCues(at: t)
+        coachSpeed(at: t, session: session)
         coachHeartRate(at: t, session: session)
 
         if t >= Double(session.totalSeconds) { finish(session) }
@@ -271,14 +317,42 @@ final class C25KRunner: ObservableObject {
             ?? speech.last { $0.priority == .transition }
         guard let pick else { return }
         if pick.priority == .transition { lastTransitionAt = t }
-        say(pick.text, interrupt: pick.priority == .transition)
+        say(pick.spoken(distanceSoFar: distanceSoFar), interrupt: pick.priority == .transition)
+    }
+
+    /// "1.4 kilometres", in the user's distance unit; nil without GPS.
+    private var distanceSoFar: String? {
+        guard let metres = model?.gpsRecorder.distanceM else { return nil }
+        let defaults = UserDefaults.standard
+        let system = UnitPrefs.resolveDistance(
+            system: UnitSystem(rawValue: defaults.string(forKey: UnitPrefs.systemKey) ?? "") ?? .metric,
+            override: defaults.string(forKey: UnitPrefs.distanceSystemKey) ?? "")
+        return CueTimeline.spokenDistance(metres: metres, miles: system == .imperial)
+    }
+
+    /// "Ease off a little" once per run when the last 15 s were 10% faster than easy pace (D84).
+    private func coachSpeed(at t: TimeInterval, session: GuidedSession) {
+        guard let i = segmentIndex, quietWindow(at: t) else { return }
+        let into = t - Double(session.segmentStarts[i])
+        guard SpeedGuard.shouldWarn(segment: session.segments[i].kind, secondsIntoSegment: into,
+                                    speed: SpeedGuard.recentSpeed(distanceSamples, at: t),
+                                    easySpeed: easySpeed, warnedThisRun: speedWarnedSegment == i) else { return }
+        speedWarnedSegment = i
+        lastCorrectionAt = t
+        say(SpeedGuard.warning, interrupt: false)
+    }
+
+    /// Not just after a segment change, and not into the countdown before the next one.
+    private func quietWindow(at t: TimeInterval) -> Bool {
+        if t - lastTransitionAt < 6 { return false }
+        if nextCue < cues.count, cues[nextCue].priority == .transition, cues[nextCue].at - t < 8 { return false }
+        return true
     }
 
     private func coachHeartRate(at t: TimeInterval, session: GuidedSession) {
         guard let model, let i = segmentIndex, let bpm = model.bpm, model.live.streamingLiveHR else { return }
         // Never talk over a segment change or the countdown just before one.
-        if t - lastTransitionAt < 6 { return }
-        if nextCue < cues.count, cues[nextCue].priority == .transition, cues[nextCue].at - t < 8 { return }
+        guard quietWindow(at: t) else { return }
         let zone = model.profile.hrZoneSet.zoneNumber(forBPM: Double(bpm))
         let into = t - Double(session.segmentStarts[i])
         let since = lastCorrectionAt.map { t - $0 }
