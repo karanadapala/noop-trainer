@@ -335,6 +335,8 @@ struct RootView: View {
             // stays in exactly one place.
             case .coach: selection = .coach
             case .alarms: selection = .smartAlarm
+            // NOOP Trainer: the Regimen is iOS-only; the Mac stays where it is.
+            case .regimen: break
             case nil: break
             }
             if dest != nil { router.requestedDestination = nil }

@@ -601,9 +601,7 @@ struct C25KView: View {
 
     private var onHold: Bool { painState.isOnHold || comeback.holdsRuns }
 
-    private var holdReasons: [String] {
-        painState.holds.map(\.reason) + (comeback.holdsRuns ? ["Getting back to running: checks first"] : [])
-    }
+    private var holdReasons: [String] { runner.holdReasons }
 
     // MARK: Getting back to running (D116, D117)
 
@@ -1066,15 +1064,8 @@ struct C25KView: View {
         }
     }
 
-    /// "31 min · 6 runs of 90 seconds" or "38 min · 3 runs, longest 5 minutes".
-    static func shape(of s: GuidedSession) -> String {
-        let runs = s.segments.filter(\.kind.isRun).map(\.seconds)
-        let total = "\(s.totalSeconds / 60) min"
-        guard let longest = runs.max() else { return total }
-        if runs.count == 1 { return "\(total) · one \(CueTimeline.spokenDuration(longest)) run" }
-        if Set(runs).count == 1 { return "\(total) · \(runs.count) runs of \(CueTimeline.spokenDuration(longest))" }
-        return "\(total) · \(runs.count) runs, longest \(CueTimeline.spokenDuration(longest))"
-    }
+    /// "31 min · 6 runs of 90 seconds"; the Regimen shows the same line.
+    static func shape(of s: GuidedSession) -> String { C25KPlan.summary(s) }
 
     /// "Bar height is each day's longest run: 90 seconds next, 30 minutes by week 9."
     static func climbLine(next: GuidedSession) -> String {

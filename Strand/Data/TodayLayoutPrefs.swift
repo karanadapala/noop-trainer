@@ -37,6 +37,9 @@ enum TodaySection: String, CaseIterable, Identifiable {
     /// selection in order; empty (and effectively invisible) until the user adds a card in Customise.
     /// Appended LAST so `decodeOrder`'s back-fill lands it predictably for existing saved orders.
     case addedCards
+    /// NOOP Trainer (D139): today's next action from the Regimen. Fork-only, so the Android twin doesn't
+    /// have it; its decoder drops the unknown token and the rest of the layout reads the same.
+    case regimen
 
     var id: String { rawValue }
 
@@ -54,13 +57,14 @@ enum TodaySection: String, CaseIterable, Identifiable {
         case .menstrualCycle: return String(localized: "Menstrual Cycle")
         case .journal:        return String(localized: "Journal")
         case .addedCards:     return String(localized: "Added Cards")
+        case .regimen:        return String(localized: "Regimen")
         }
     }
 
     /// The original, hard-coded section order — the default when the layout isn't customised. The journal
     /// widget (#656) is last by default, where it was first added, above the data-sources card.
     static let defaultOrder: [TodaySection] = [
-        .hero, .liveSession, .synthesis, .keyMetrics, .workouts, .heartRate, .recoveryVitals, .yourCards,
+        .hero, .regimen, .liveSession, .synthesis, .keyMetrics, .workouts, .heartRate, .recoveryVitals, .yourCards,
         .menstrualCycle, .journal, .addedCards,
     ]
 }

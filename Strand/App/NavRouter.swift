@@ -35,6 +35,8 @@ final class NavRouter: ObservableObject {
         /// Also the K5 scheduled morning-brief notification's tap-through target.
         case coach
         case alarms
+        /// NOOP Trainer (D139): the Regimen tab, from its Today card. iOS only; macOS has no Regimen.
+        case regimen
 
         var id: String { rawValue }
 

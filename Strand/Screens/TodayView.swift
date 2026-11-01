@@ -1962,6 +1962,11 @@ struct TodayView: View {
             if selectedDayOffset == 0 { JournalReminderCard() }
         case .addedCards:
             hostedCardsSection
+        // NOOP Trainer (D139): the Regimen's next action. Today only; iOS only.
+        case .regimen:
+            #if os(iOS)
+            if selectedDayOffset == 0 { RegimenTodayCard() }
+            #endif
         }
     }
 

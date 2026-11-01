@@ -250,3 +250,46 @@ public struct PainState: Equatable, Sendable {
     /// The latest 0–10 value for an area, to compare the next morning against.
     public func lastScore(_ area: BodyArea) -> Int? { latest[area]?.value }
 }
+
+/// Corrections to the pain log (D151). Every answer can be changed or deleted; the morning trends
+/// after it are worked out again, so a mis-tap never leaves a stale "worse" (and its hold) behind.
+public enum PainHistory {
+    /// The log with every morning trend recomputed from the 0–10 score before it, oldest first.
+    public static func recomputed(_ entries: [PainEntry]) -> [PainEntry] {
+        var previous: [BodyArea: Int] = [:]
+        return entries.sorted { $0.date < $1.date }.map { e in
+            var out = e
+            if case .trend = e.kind, let score = e.score {
+                out = .morning(area: e.area, date: e.date, score: score, previous: previous[e.area])
+                out.side = e.side
+                out.feel = e.feel
+                out.backPain = e.backPain
+            }
+            previous[out.area] = out.value
+            return out
+        }
+    }
+
+    /// The log without `entry`, trends recomputed.
+    public static func deleting(_ entry: PainEntry, from entries: [PainEntry]) -> [PainEntry] {
+        var rest = entries
+        if let i = rest.firstIndex(of: entry) { rest.remove(at: i) }
+        return recomputed(rest)
+    }
+
+    /// The log with `entry`'s 0–10 value changed, trends recomputed. Old word answers become ratings.
+    public static func changing(_ entry: PainEntry, to score: Int, in entries: [PainEntry]) -> [PainEntry] {
+        var rest = entries
+        guard let i = rest.firstIndex(of: entry) else { return recomputed(rest) }
+        var changed: PainEntry
+        switch entry.kind {
+        case .trend: changed = entry; changed.score = score
+        case .rating, .report, .spot: changed = PainEntry(area: entry.area, date: entry.date, kind: .rating(score))
+        }
+        changed.side = entry.side
+        changed.feel = entry.feel
+        changed.backPain = entry.backPain
+        rest[i] = changed
+        return recomputed(rest)
+    }
+}

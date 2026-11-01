@@ -580,6 +580,12 @@ enum DemoScreens {
         // capture.
         case "liquidtoday": return AnyView(LiquidTodayView())
         case "trends":   return AnyView(TrendsView())
+        // NOOP Trainer (Sprint 2): the Regimen and its setup screens.
+        case "regimen":  return AnyView(RegimenView())
+        case "regimencard": return AnyView(ScrollView { RegimenTodayCard().padding(16) })
+        case "places":   return AnyView(PlacesView())
+        case "healthprofile": return AnyView(HealthProfileView())
+        case "c25khistory": return AnyView(C25KHistoryView())
         case "sleep":    return AnyView(SleepView())
         case "live":     return AnyView(LiveView())
         case "stress":   return AnyView(StressView())

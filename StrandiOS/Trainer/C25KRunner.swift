@@ -176,6 +176,57 @@ final class C25KRunner: ObservableObject {
         return Calendar.current.isDateInToday(e.date)
     }
 
+    // MARK: The plan layer (Sprint 2)
+
+    /// Why runs are held today: pain answers, or the checks after a stop. Empty when they aren't.
+    var holdReasons: [String] {
+        painState.holds.map(\.reason) + (returnToRun.holdsRuns ? ["Getting back to running: checks first"] : [])
+    }
+
+    /// C25K as the Regimen sees it.
+    var plan: C25KPlan {
+        C25KPlan(completed: completed, lastRun: lastRunDate, lastRunDay: lastRunDay, holdReasons: holdReasons)
+    }
+
+    // MARK: Corrections (D151)
+
+    /// Removes a pain answer; the morning trends after it are worked out again.
+    func deletePain(_ entry: PainEntry) {
+        pain = PainHistory.deleting(entry, from: pain)
+        Self.save(pain, Self.painKey)
+    }
+
+    /// Changes a pain answer's 0–10 value; the morning trends after it are worked out again.
+    func changePain(_ entry: PainEntry, to score: Int) {
+        pain = PainHistory.changing(entry, to: score, in: pain)
+        Self.save(pain, Self.painKey)
+    }
+
+    func deleteStop(_ stop: RunStop) {
+        guard let i = stops.firstIndex(of: stop) else { return }
+        stops.remove(at: i)
+        Self.save(stops, Self.stopsKey)
+    }
+
+    func deleteGate(_ gate: GateEntry) {
+        guard let i = gates.firstIndex(of: gate) else { return }
+        gates.remove(at: i)
+        Self.save(gates, Self.gatesKey)
+        applyRestartIfReady()
+    }
+
+    /// The stop whose restart already moved the plan, if any. Deleting it, or its checks, doesn't move
+    /// the plan back, so the history asks first.
+    var appliedRestartStop: RunStop? {
+        let stamp = UserDefaults.standard.double(forKey: Self.restartAppliedKey)
+        return stops.first { $0.date.timeIntervalSince1970 == stamp }
+    }
+
+    /// Runs from earlier times through a restarted week, newest first.
+    var archivedRuns: [(key: String, entry: C25KLogEntry)] {
+        archive.map { ($0.key, $0.value) }.sorted { $0.entry.date > $1.entry.date }
+    }
+
     // MARK: Progress
 
     static func key(_ s: GuidedSession) -> String { "w\(s.week)d\(s.day)" }

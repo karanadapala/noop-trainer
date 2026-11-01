@@ -387,6 +387,11 @@ struct LiquidTodayView: View {
                         // order they arranged. Empty (renders nothing) until they add one in Customise.
                         // Today-only, matching Android's addedCards section gate + the classic TodayView.
                         case .addedCards: if selectedDayOffset == 0 { hostedCardsSection }
+                        // NOOP Trainer (D139): the Regimen's next action. Today only; iOS only.
+                        case .regimen:
+                            #if os(iOS)
+                            if selectedDayOffset == 0 { RegimenTodayCard() }
+                            #endif
                         }
                     }
                     // Opt-in "looks like a workout?" suggestion, dropped in the liquid Home rewrite. Its
