@@ -389,6 +389,14 @@ final class RestRoutineTests: XCTestCase {
         XCTAssertFalse(p.items.contains { $0.exercise.loads.contains(.feet) })
     }
 
+    func testStopDayIsFootCoreOnly() {
+        let r = RoutineBuilder.stopDay(pain: PainState(entries: [], now: Date()))
+        XCTAssertEqual(r.items.map(\.exercise.id), ["shortFoot", "toeYoga"])
+        XCTAssertLessThanOrEqual(r.estimatedMinutes, 8)
+        let feet = PainState(entries: [PainEntry(area: .feet, date: Date(), kind: .spot)], now: Date())
+        XCTAssertTrue(RoutineBuilder.stopDay(pain: feet).items.isEmpty)
+    }
+
     func testBaseBlockAfterARun() {
         let now = Date()
         let base = RoutineBuilder.base(pain: PainState(entries: [], now: now), focus: [])

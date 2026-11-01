@@ -190,6 +190,17 @@ public enum RoutineBuilder {
         return fit(out, within: focusBudget)
     }
 
+    /// The evening of a run stopped for pain (research 06 §7c): foot core only, if it's painless.
+    public static func stopDay(pain: PainState) -> RestRoutine {
+        let flagged = Set(pain.redFlagAreas)
+        let items = ["shortFoot", "toeYoga"]
+            .compactMap { id in RestDayCatalogue.all.first { $0.id == id } }
+            .filter { $0.loads.isDisjoint(with: flagged) }
+            .map { RoutineItem(exercise: $0, dose: $0.dose(.learn)) }
+        return RestRoutine(variant: .protect, walkMinutes: 0, items: items, skippedAreas: pain.redFlagAreas,
+                           focusAreas: [], stages: [:])
+    }
+
     /// The base block (D118): about five easy minutes of shins, calves and feet after a run, with the
     /// focus areas' easy work first. One set each; nothing loads an area with a red flag.
     public static func base(pain: PainState, focus: [BodyArea]) -> RestRoutine {

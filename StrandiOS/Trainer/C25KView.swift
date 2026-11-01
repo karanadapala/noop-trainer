@@ -279,12 +279,37 @@ struct C25KView: View {
             focus: focusAreas)
     }
 
+    /// A run was stopped for pain today: the evening is foot core only (research 06 §7c).
+    private var stoppedToday: Bool {
+        if case .doneForToday(0) = comeback.status { return true }
+        return false
+    }
+
     @ViewBuilder
     private var routineSection: some View {
         if let done = routineRunner.doneToday {
             Label("Done today: \(done.variant.label) routine", systemImage: "checkmark.circle.fill")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.accent)
+        } else if stoppedToday {
+            let routine = RoutineBuilder.stopDay(pain: painState)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Tonight · about \(routine.estimatedMinutes) min")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("After stopping a run for pain, just easy foot work, and only if it's painless. The full routine is back tomorrow.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(routine.items, id: \.exercise.id) { item in
+                        routineLine(item.exercise.name, item.dose.variant)
+                    }
+                }
+                NoopButton("Start the foot work", systemImage: "play.fill", kind: .primary, fullWidth: true) {
+                    if !routineRunner.start(routine) { blockedByWorkout = true }
+                }
+            }
         } else if let legs = routineRunner.legsToday {
             let input = routineInput(legs)
             let suggested = RoutineBuilder.variant(for: input)
