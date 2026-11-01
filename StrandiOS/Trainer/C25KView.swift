@@ -588,6 +588,12 @@ struct C25KView: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     NoopButton("When to get it checked", systemImage: "cross.case", kind: .secondary) { showingRedFlags = true }
+                case .doneForToday(0):
+                    comebackSteps(next: .basics, days: 0)
+                    Text("The first check is tomorrow morning. Tonight, rest it; easy foot work only if it's painless.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 case .doneForToday(let days):
                     comebackSteps(next: nil, days: days)
                     Text("Done for today. The next check is tomorrow morning.")

@@ -661,7 +661,9 @@ final class ReturnToRunTests: XCTestCase {
     }
 
     func testStepsInOrderOverTwoDays() {
-        XCTAssertEqual(status([], now: at(0, 20)), .checking(next: .basics, daysPassed: 0, failedToday: false))
+        // The day of the stop: nothing to do until tomorrow morning.
+        XCTAssertEqual(status([], now: at(0, 20)), .doneForToday(daysPassed: 0))
+        XCTAssertEqual(status([], now: at(1, 7)), .checking(next: .basics, daysPassed: 0, failedToday: false))
         XCTAssertEqual(status([pass(1, .basics)], now: at(1, 8)), .checking(next: .walk, daysPassed: 0, failedToday: false))
         let day1 = [pass(1, .basics), pass(1, .walk)]
         XCTAssertEqual(status(day1, now: at(1, 12)), .doneForToday(daysPassed: 1))

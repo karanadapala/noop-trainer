@@ -114,7 +114,8 @@ public struct ReturnToRun: Equatable, Sendable {
         case notNeeded
         /// The next step to do. `daysPassed` counts mornings in a row with the basics and the walk.
         case checking(next: GateEntry.Step, daysPassed: Int, failedToday: Bool)
-        /// Today's basics and walk passed; the next step is tomorrow morning.
+        /// Nothing more today: the basics and walk passed, or it's the day of the stop itself (0 days).
+        /// The next step is tomorrow morning.
         case doneForToday(daysPassed: Int)
         case ready(RestartPoint)
         case seeClinician(String)
@@ -189,7 +190,10 @@ public struct ReturnToRun: Equatable, Sendable {
         } else {
             let todays = after.filter { day($0.date) == today }
             let failedToday = todays.contains { !$0.passed }
-            if streak >= Self.daysNeeded && lastPassDay != nil {
+            if today == stopDay {
+                // Checks start the morning after the stop.
+                self.status = .doneForToday(daysPassed: 0)
+            } else if streak >= Self.daysNeeded && lastPassDay != nil {
                 self.status = .checking(next: .hopAndHeel, daysPassed: streak, failedToday: failedToday)
             } else if lastPassDay == today {
                 self.status = .doneForToday(daysPassed: streak)
