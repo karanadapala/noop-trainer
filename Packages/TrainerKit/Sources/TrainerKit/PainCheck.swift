@@ -13,9 +13,21 @@ public enum BodyArea: String, CaseIterable, Codable, Sendable {
         case .hips: return "Hips"
         }
     }
+
+    /// "shin", "calf", for the coach's voice.
+    public var spokenName: String {
+        switch self {
+        case .shins: return "shin"
+        case .calves: return "calf"
+        case .knees: return "knee"
+        case .feet: return "foot"
+        case .hips: return "hip"
+        }
+    }
 }
 
-/// How it hurts when reported, after a run or by hand (D49).
+/// How it hurts when reported, after a run or by hand (D49). Replaced by the 0–10 scale (D114); kept so
+/// older answers still read.
 public enum PainLevel: String, CaseIterable, Codable, Sendable {
     case mild, worsening, sharp
 
@@ -26,11 +38,64 @@ public enum PainLevel: String, CaseIterable, Codable, Sendable {
         case .sharp: return "Sharp, one spot"
         }
     }
+
+    /// Where an old word answer sits on the 0–10 scale; nil for sharp, which is a spot now.
+    var score: Int? {
+        switch self {
+        case .mild: return 2
+        case .worsening: return 5
+        case .sharp: return nil
+        }
+    }
+}
+
+/// The 0–10 pain scale (D114), with words at the points people anchor on.
+public enum PainScale {
+    public static let range = 0...10
+    /// The research's limit for exercise and running (D110, D115): above this, stop.
+    public static let limit = 3
+
+    public static func anchor(_ score: Int) -> String? {
+        switch score {
+        case 0: return "None"
+        case 3: return "Noticeable"
+        case 5: return "Distracting"
+        case 8: return "Can't continue"
+        default: return nil
+        }
+    }
+}
+
+public enum PainSide: String, CaseIterable, Codable, Sendable {
+    case left, right, both
+
+    public var label: String { rawValue.capitalized }
+}
+
+/// What the pain feels like (D119). Tingling points at a nerve rather than the leg itself.
+public enum PainFeel: String, CaseIterable, Codable, Sendable {
+    case sharp, achy, tight, tingling
+
+    public var label: String {
+        switch self {
+        case .sharp: return "Sharp"
+        case .achy: return "Achy"
+        case .tight: return "Tight"
+        case .tingling: return "Tingling / numb"
+        }
+    }
 }
 
 /// The next-morning answer for an area reported earlier (D49).
 public enum PainTrend: String, CaseIterable, Codable, Sendable {
     case gone, less, same, worse
+
+    /// The trend a 0–10 morning score makes against the last score.
+    public static func from(score: Int, previous: Int?) -> PainTrend {
+        if score == 0 { return .gone }
+        guard let previous else { return .same }
+        return score < previous ? .less : score > previous ? .worse : .same
+    }
 
     public var label: String {
         switch self {
@@ -45,18 +110,54 @@ public enum PainTrend: String, CaseIterable, Codable, Sendable {
 /// One answer about one area at one moment.
 public struct PainEntry: Codable, Equatable, Sendable {
     public enum Kind: Codable, Equatable, Sendable {
+        /// An old word answer (before the 0–10 scale).
         case report(PainLevel)
         case trend(PainTrend)
+        /// A 0–10 report, after a run, a stopped run or by hand.
+        case rating(Int)
+        /// Sharp pain in one small spot on a bone: a red flag whatever the number.
+        case spot
     }
 
     public let area: BodyArea
     public let date: Date
     public let kind: Kind
+    /// The 0–10 score behind a morning trend.
+    public var score: Int?
+    public var side: PainSide?
+    public var feel: PainFeel?
+    /// Back or buttock pain along with it (D119): with one side, that points at the nerve.
+    public var backPain: Bool?
 
-    public init(area: BodyArea, date: Date, kind: Kind) {
+    public init(area: BodyArea, date: Date, kind: Kind, score: Int? = nil, side: PainSide? = nil,
+                feel: PainFeel? = nil, backPain: Bool? = nil) {
         self.area = area
         self.date = date
         self.kind = kind
+        self.score = score
+        self.side = side
+        self.feel = feel
+        self.backPain = backPain
+    }
+
+    /// The 0–10 value this answer carries, if any.
+    public var value: Int? {
+        switch kind {
+        case .rating(let n): return n
+        case .report(let level): return level.score
+        case .trend: return score
+        case .spot: return nil
+        }
+    }
+
+    /// Tingling or numbness, or one-sided pain with back pain: a nerve sign (D113), checked before training.
+    public var nerveSign: Bool {
+        feel == .tingling || (backPain == true && side != nil && side != .both)
+    }
+
+    /// A morning answer on the 0–10 scale, with its trend against the last score.
+    public static func morning(area: BodyArea, date: Date, score: Int, previous: Int?) -> PainEntry {
+        PainEntry(area: area, date: date, kind: .trend(.from(score: score, previous: previous)), score: score)
     }
 }
 
@@ -97,9 +198,14 @@ public struct PainState: Equatable, Sendable {
             active.append(area)
             let isToday = calendar.startOfDay(for: e.date) == today
             if !isToday { needsCheck.append(area) }
+            if e.nerveSign {
+                holds.append(Hold(area: area, reason: "\(area.label): tingling or back pain with it"))
+                redFlags = true
+                continue
+            }
             switch e.kind {
-            case .report(.sharp):
-                holds.append(Hold(area: area, reason: "\(area.label): sharp pain"))
+            case .report(.sharp), .spot:
+                holds.append(Hold(area: area, reason: "\(area.label): sharp pain in one spot"))
                 redFlags = true
             case .trend(.same) where isToday:
                 holds.append(Hold(area: area, reason: "\(area.label): same as yesterday"))
@@ -119,15 +225,21 @@ public struct PainState: Equatable, Sendable {
         self.latest = latest
     }
 
-    /// "Mild" / "Less than yesterday". Nil for an area that isn't active.
+    /// "4/10" / "Less than yesterday · 2/10". Nil for an area that isn't active.
     public func summary(_ area: BodyArea) -> String? {
         guard active.contains(area), let e = latest[area] else { return nil }
+        let score = e.score.map { " · \($0)/10" } ?? ""
         switch e.kind {
         case .report(let level): return level.label
-        case .trend(.less): return "Less than yesterday"
-        case .trend(.same): return "Same as yesterday"
-        case .trend(.worse): return "Worse than yesterday"
+        case .rating(let n): return "\(n)/10"
+        case .spot: return "Sharp, one spot"
+        case .trend(.less): return "Less than yesterday" + score
+        case .trend(.same): return "Same as yesterday" + score
+        case .trend(.worse): return "Worse than yesterday" + score
         case .trend(.gone): return nil
         }
     }
+
+    /// The latest 0–10 value for an area, to compare the next morning against.
+    public func lastScore(_ area: BodyArea) -> Int? { latest[area]?.value }
 }

@@ -24,8 +24,10 @@ public struct HeartRateGuard: Sendable {
     ///   - zone: current HR zone (1–5), nil when there's no fresh HR.
     ///   - secondsIntoSegment: active seconds since the current segment began.
     ///   - secondsSinceLastCorrection: nil if none has been spoken yet this session.
+    public static let briskWalkCeilingZone = 2
+
     public func correction(segment: Segment.Kind, zone: Int?, secondsIntoSegment: Double,
-                           secondsSinceLastCorrection: Double?) -> String? {
+                           secondsSinceLastCorrection: Double?, briskWalk: Bool = false) -> String? {
         guard let zone else { return nil }
         if let since = secondsSinceLastCorrection, since < cooldownSeconds { return nil }
         // Give a new segment a few seconds before judging it; HR lags effort.
@@ -33,6 +35,11 @@ public struct HeartRateGuard: Sendable {
 
         if segment.isRun, zone > runCeilingZone {
             return "Heart rate is high. Slow down to an easy jog."
+        }
+        if briskWalk {
+            // Zone 2 is the cap (D43); give heart rate a couple of minutes to settle into the pace.
+            guard zone > Self.briskWalkCeilingZone, secondsIntoSegment >= 120 else { return nil }
+            return "Ease off a little. Keep it conversational."
         }
         if segment == .walk, zone >= walkRecoveryZone, secondsIntoSegment >= walkGraceSeconds {
             return "Keep the walk easy and let your heart rate come down."

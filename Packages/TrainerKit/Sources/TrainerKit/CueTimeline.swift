@@ -71,7 +71,10 @@ public enum CueTimeline {
     /// A halfway cue this close to another cue joins it instead of talking over it.
     public static let halfwayJoinWindow = 15.0
 
-    public static func cues(for session: GuidedSession, halfway: HalfwayCue = .off) -> [Cue] {
+    /// - Parameter checkIn: after a stop for pain (D117), said at the start of each walk: "How's the
+    ///   shin? 4 out of 10 or more, walk the rest."
+    public static func cues(for session: GuidedSession, halfway: HalfwayCue = .off,
+                            checkIn: String? = nil) -> [Cue] {
         var out: [Cue] = []
         let starts = session.segmentStarts
         let runTotal = session.runCount
@@ -82,10 +85,12 @@ public enum CueTimeline {
             let end = start + Double(seg.seconds)
             if seg.kind.isRun { runNumber += 1 }
 
-            out.append(Cue(at: start,
-                           text: announcement(seg, runNumber: runNumber, runTotal: runTotal, isFirst: i == 0,
-                                              week: session.week, day: session.day),
-                           priority: .transition))
+            var text = session.kind == .briskWalk
+                ? "Brisk walk for \(spokenDuration(seg.seconds)). Keep it conversational: you should be able to talk."
+                : announcement(seg, runNumber: runNumber, runTotal: runTotal, isFirst: i == 0,
+                               week: session.week, day: session.day)
+            if let checkIn, seg.kind == .walk, i > 0 { text += " " + checkIn }
+            out.append(Cue(at: start, text: text, priority: .transition))
 
             // Halfway marker for anything 4 minutes or longer. With the whole session's halfway cue on, only
             // long runs keep one, worded so it can't be mistaken for the turn-around point.
@@ -105,9 +110,12 @@ public enum CueTimeline {
             }
         }
 
-        let done = session.week > 0
-            ? "Workout complete. Week \(session.week), day \(session.day) done. Great job."
-            : "Test complete."
+        let done: String
+        switch session.kind {
+        case .plan: done = "Workout complete. Week \(session.week), day \(session.day) done. Great job."
+        case .rehearsal: done = "Test complete."
+        case .briskWalk: done = "Walk complete. Nice work."
+        }
         out.append(Cue(at: Double(session.totalSeconds), text: done, priority: .transition))
         if let sentence = halfway.sentence { addHalfway(sentence, at: Double(session.totalSeconds) / 2, to: &out) }
         return out.sorted { $0.at < $1.at }

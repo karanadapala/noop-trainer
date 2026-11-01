@@ -24,11 +24,13 @@ struct C25KView: View {
     @State private var routineChoice: RoutineVariant?
     @State private var confirmRestart: Int?
     @State private var takingCalfTest = false
+    @State private var loggingStop: GuidedSession?
 
     private var picked: GuidedSession? { C25K.session(week: week, day: day) }
     private var isPickedNext: Bool { week == runner.nextSession.week && day == runner.nextSession.day }
     private var charge: Double? { repo.today?.recovery }
     private var painState: PainState { runner.painState }
+    private var comeback: ReturnToRun { runner.returnToRun }
 
     private var lastRun: Date? { runner.lastRunDate }
 
@@ -46,6 +48,7 @@ struct C25KView: View {
                     planCard
                 case .idle:
                     if !painState.active.isEmpty { bodyCard }
+                    if comeback.status != .notNeeded { comebackCard }
                     if isPickedNext { todayCard }
                     if today == .runDay && onHold { routineCard(title: "Rest-day routine") }
                     sessionCard
@@ -54,7 +57,16 @@ struct C25KView: View {
                 }
             }
         }
-        .onAppear { if runner.state == .idle { selectNext() } }
+        .onAppear {
+            runner.applyRestartIfReady()
+            if runner.state == .idle { selectNext() }
+        }
+        .sheet(item: $runner.stoppedSession) { s in
+            StopSheet(session: s) { stop, pain in runner.recordStop(stop, pain: pain) }
+        }
+        .sheet(item: $loggingStop) { s in
+            StopSheet(session: s) { stop, pain in runner.recordStop(stop, pain: pain) }
+        }
         .confirmationDialog("Stop this workout?", isPresented: $confirmStop, titleVisibility: .visible) {
             Button("Stop and save", role: .destructive) { runner.stop() }
             Button("Keep going", role: .cancel) {}
@@ -92,7 +104,7 @@ struct C25KView: View {
             Button("Start the run") { startPicked() }
             Button("Rest today", role: .cancel) {}
         } message: {
-            Text("\(painState.holds.map(\.reason).joined(separator: ". ")). If you run, stop as soon as it's more than mild.")
+            Text("\(holdReasons.joined(separator: ". ")). If you run, stop as soon as it's above 3 out of 10.")
         }
         .alert("Another workout is running", isPresented: $blockedByWorkout) {
             Button("OK", role: .cancel) {}
@@ -376,12 +388,12 @@ struct C25KView: View {
                 ForEach(state.active, id: \.self) { area in
                     if state.needsCheck.contains(area) {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("\(area.label): compared with yesterday?")
+                            Text("\(area.label): out of 10, on your first steps today?")
                                 .font(StrandFont.headline)
                                 .foregroundStyle(StrandPalette.textPrimary)
-                            ChoiceChips(options: PainTrend.allCases, label: \.label, selected: nil,
-                                        tint: StrandPalette.statusWarning) { trend in
-                                runner.recordPain([PainEntry(area: area, date: Date(), kind: .trend(trend))])
+                            PainScaleRow(selected: nil) { score in
+                                runner.recordPain([.morning(area: area, date: Date(), score: score,
+                                                            previous: state.lastScore(area))])
                             }
                         }
                     } else {
@@ -402,7 +414,7 @@ struct C25KView: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if !state.needsCheck.isEmpty {
-                    Text("Answer each morning. Same or worse puts today's run on hold.")
+                    Text("Answer each morning. 0 means gone; the same or higher than yesterday puts today's run on hold.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                 } else {
@@ -504,7 +516,7 @@ struct C25KView: View {
                 }
 
                 if onHold {
-                    Label("\(painState.holds.map(\.reason).joined(separator: ". ")). Rest today.",
+                    Label("\(holdReasons.joined(separator: ". ")). Rest today.",
                           systemImage: "pause.circle")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.statusWarning)
@@ -530,7 +542,107 @@ struct C25KView: View {
         }
     }
 
-    private var onHold: Bool { painState.isOnHold }
+    private var onHold: Bool { painState.isOnHold || comeback.holdsRuns }
+
+    private var holdReasons: [String] {
+        painState.holds.map(\.reason) + (comeback.holdsRuns ? ["Getting back to running: checks first"] : [])
+    }
+
+    // MARK: Getting back to running (D116, D117)
+
+    private var comebackCard: some View {
+        let status = comeback.status
+        let tint: Color = { if case .ready = status { return StrandPalette.accent }; return StrandPalette.statusWarning }()
+        return StrandCard(padding: 20, tint: tint) {
+            VStack(alignment: .leading, spacing: 14) {
+                overline("Getting back to running", color: tint)
+                switch status {
+                case .notNeeded:
+                    EmptyView()
+                case .ready(let point):
+                    Text("Cleared to run")
+                        .font(StrandFont.rounded(30))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("\(point.text) At each walk the coach asks how it feels: 4 out of 10 or more, walk the rest of the session.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                case .seeClinician(let why):
+                    Text("Get it checked")
+                        .font(StrandFont.rounded(30))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("\(why) Runs are paused until then; the shin and foot exercises can carry on if they stay at 3 out of 10 or less.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    NoopButton("When to get it checked", systemImage: "cross.case", kind: .secondary) { showingRedFlags = true }
+                case .doneForToday(let days):
+                    comebackSteps(next: nil, days: days)
+                    Text("Done for today. The next check is tomorrow morning.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                case .checking(let next, let days, let failed):
+                    comebackSteps(next: next, days: days)
+                    if failed {
+                        Text("Not yet today. Rest it, keep the easy exercises at 3 out of 10 or less, and try again tomorrow morning.")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.statusWarning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        comebackAction(next)
+                    }
+                }
+            }
+        }
+    }
+
+    private func comebackSteps(next: GateEntry.Step?, days: Int) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Day \(min(days + (next == nil ? 0 : 1), ReturnToRun.daysNeeded)) of \(ReturnToRun.daysNeeded), then a hop test")
+                .font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.textPrimary)
+            ForEach(GateEntry.Step.allCases, id: \.self) { step in
+                let done = next.map { Self.stepOrder(step) < Self.stepOrder($0) } ?? (step != .hopAndHeel)
+                Label(Self.stepText(step), systemImage: done ? "checkmark.circle.fill" : step == next ? "circle.dotted" : "circle")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(done ? StrandPalette.textSecondary : StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder private func comebackAction(_ step: GateEntry.Step) -> some View {
+        switch step {
+        case .basics:
+            HStack(spacing: 12) {
+                NoopButton("Yes, all fine", kind: .primary, fullWidth: true) { runner.recordGate(.basics, passed: true) }
+                NoopButton("Not yet", kind: .secondary, fullWidth: true) { runner.recordGate(.basics, passed: false) }
+            }
+        case .walk:
+            NoopButton("Start a 20-minute brisk walk", systemImage: "figure.walk", kind: .primary, fullWidth: true) {
+                if !runner.start(C25K.briskWalk(minutes: 20), model: model) { blockedByWorkout = true }
+            }
+        case .hopAndHeel:
+            Text("10 gentle hops on each leg (2 out of 10 or less), then single-leg heel raises: 15 or more each side, no shin pain.")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                NoopButton("Passed", kind: .primary, fullWidth: true) { runner.recordGate(.hopAndHeel, passed: true) }
+                NoopButton("Not yet", kind: .secondary, fullWidth: true) { runner.recordGate(.hopAndHeel, passed: false) }
+            }
+        }
+    }
+
+    static func stepOrder(_ step: GateEntry.Step) -> Int { GateEntry.Step.allCases.firstIndex(of: step) ?? 0 }
+
+    static func stepText(_ step: GateEntry.Step) -> String {
+        switch step {
+        case .basics: return "No sore spot on the bone, no ache at rest or overnight, walking around is pain-free"
+        case .walk: return "A 20-minute brisk walk with no pain"
+        case .hopAndHeel: return "After 2 days of both: the hop and heel-raise test"
+        }
+    }
 
     // MARK: Halfway cue (D83)
 
@@ -657,6 +769,12 @@ struct C25KView: View {
                 }
             }
             Button { reportingPain = true } label: { Label("Something hurts…", systemImage: "bandage") }
+            if let picked {
+                Button { loggingStop = picked } label: { Label("I stopped this run early…", systemImage: "stop.circle") }
+            }
+            Button {
+                if !runner.start(C25K.briskWalk(minutes: 20), model: model) { blockedByWorkout = true }
+            } label: { Label("Brisk walk, 20 minutes", systemImage: "figure.walk") }
             if let w = runner.restartableWeek {
                 Button { confirmRestart = w } label: { Label("Restart week \(w)…", systemImage: "arrow.counterclockwise") }
             }
@@ -789,6 +907,23 @@ struct C25KView: View {
                                 askedAfterRun = true
                                 reportingPain = true
                             }
+                        }
+                    }
+                } else if runner.session?.kind == .briskWalk {
+                    Text("Walk complete")
+                        .font(StrandFont.rounded(30))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("Saved in Workouts as a walk.")
+                        .font(StrandFont.body)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    if case .checking(.walk, _, _) = comeback.status {
+                        Divider().overlay(StrandPalette.hairline)
+                        Text("Was the walk pain-free?")
+                            .font(StrandFont.headline)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        HStack(spacing: 12) {
+                            NoopButton("Yes", kind: .primary, fullWidth: true) { runner.recordGate(.walk, passed: true) }
+                            NoopButton("No", kind: .secondary, fullWidth: true) { runner.recordGate(.walk, passed: false) }
                         }
                     }
                 } else {

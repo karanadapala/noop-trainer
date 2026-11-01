@@ -20,14 +20,22 @@ public struct Segment: Equatable, Sendable {
 
 /// One C25K day: a warm-up walk, the run/walk intervals, and a cool-down walk.
 public struct GuidedSession: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        case plan, rehearsal
+        /// A guided brisk walk (D43): one walking segment, heart rate kept to zone 2.
+        case briskWalk
+    }
+
     public let week: Int
     public let day: Int
     public let segments: [Segment]
+    public let kind: Kind
 
-    public init(week: Int, day: Int, segments: [Segment]) {
+    public init(week: Int, day: Int, segments: [Segment], kind: Kind = .plan) {
         self.week = week
         self.day = day
         self.segments = segments
+        self.kind = kind
     }
 
     public var totalSeconds: Int { segments.reduce(0) { $0 + $1.seconds } }
@@ -72,7 +80,12 @@ public enum C25K {
     /// without walking a full warm-up. Week/day 0 marks it as not part of the plan.
     public static let rehearsal = GuidedSession(week: 0, day: 0, segments: [
         Segment(.warmUp, 30), Segment(.run, 30), Segment(.walk, 30), Segment(.coolDown, 30),
-    ])
+    ], kind: .rehearsal)
+
+    /// A guided brisk walk of the given length; saved as a Walking workout, not a plan day.
+    public static func briskWalk(minutes: Int) -> GuidedSession {
+        GuidedSession(week: 0, day: 0, segments: [Segment(.walk, minutes * 60)], kind: .briskWalk)
+    }
 
     /// All 27 sessions in order.
     public static var all: [GuidedSession] {
@@ -112,6 +125,6 @@ public enum C25K {
 }
 
 extension GuidedSession: Identifiable {
-    /// "w2d1"; the rehearsal is "w0d0".
-    public var id: String { "w\(week)d\(day)" }
+    /// "w2d1"; the rehearsal is "w0d0", a 20-minute brisk walk "walk20".
+    public var id: String { kind == .briskWalk ? "walk\(totalSeconds / 60)" : "w\(week)d\(day)" }
 }

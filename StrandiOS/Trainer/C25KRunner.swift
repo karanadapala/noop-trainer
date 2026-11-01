@@ -28,6 +28,10 @@ final class C25KRunner: ObservableObject {
     @Published private(set) var restarts: [Int: Int]
     /// Runs from earlier times through a restarted week, keyed "w2d1#1" (first time through).
     private var archive: [String: C25KLogEntry]
+    /// Runs stopped early, and why (D111).
+    @Published private(set) var stops: [RunStop]
+    /// Morning steps back to running after a stop for pain (D116).
+    @Published private(set) var gates: [GateEntry]
     /// What the coach says halfway through the session (D83), remembered between runs.
     @Published var halfway: HalfwayCue {
         didSet { UserDefaults.standard.set(halfway.rawValue, forKey: Self.halfwayKey) }
@@ -56,6 +60,10 @@ final class C25KRunner: ObservableObject {
     private static let restartsKey = "trainer.c25k.restarts"
     private static let archiveKey = "trainer.c25k.logArchive"
     private static let halfwayKey = "trainer.c25k.halfway"
+    private static let stopsKey = "trainer.c25k.stops"
+    private static let gatesKey = "trainer.c25k.gates"
+    /// The stop whose restart point has been applied, so it's applied once.
+    private static let restartAppliedKey = "trainer.c25k.restartApplied"
     /// A cue more than this late is dropped rather than spoken out of context.
     private static let staleAfter: TimeInterval = 5
     private static let tick: TimeInterval = 0.5
@@ -70,6 +78,57 @@ final class C25KRunner: ObservableObject {
         archive = UserDefaults.standard.data(forKey: Self.archiveKey)
             .flatMap { try? JSONDecoder().decode([String: C25KLogEntry].self, from: $0) } ?? [:]
         halfway = UserDefaults.standard.string(forKey: Self.halfwayKey).flatMap(HalfwayCue.init) ?? .outAndBack
+        stops = Self.decode([RunStop].self, Self.stopsKey) ?? []
+        gates = Self.decode([GateEntry].self, Self.gatesKey) ?? []
+    }
+
+    private static func decode<T: Decodable>(_ type: T.Type, _ key: String) -> T? {
+        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(type, from: $0) }
+    }
+
+    private static func save<T: Encodable>(_ value: T, _ key: String) {
+        if let data = try? JSONEncoder().encode(value) { UserDefaults.standard.set(data, forKey: key) }
+    }
+
+    // MARK: Stopped runs and the way back (D111, D116, D117)
+
+    func recordStop(_ stop: RunStop, pain: [PainEntry]) {
+        stops.append(stop)
+        Self.save(stops, Self.stopsKey)
+        recordPain(pain)
+    }
+
+    func recordGate(_ step: GateEntry.Step, passed: Bool) {
+        gates.append(GateEntry(date: Date(), step: step, passed: passed))
+        Self.save(gates, Self.gatesKey)
+        applyRestartIfReady()
+    }
+
+    var returnToRun: ReturnToRun {
+        ReturnToRun(stops: stops, gates: gates, pain: pain, lastCompletedRun: lastRunDate,
+                    redFlag: painState.showRedFlags, now: Date())
+    }
+
+    /// Once the checks pass, moves the plan to where it restarts (D117), once per stop.
+    func applyRestartIfReady() {
+        let r = returnToRun
+        guard case .ready(let point) = r.status, let stop = r.stop else { return }
+        let stamp = stop.date.timeIntervalSince1970
+        guard UserDefaults.standard.double(forKey: Self.restartAppliedKey) != stamp else { return }
+        UserDefaults.standard.set(stamp, forKey: Self.restartAppliedKey)
+        switch point {
+        case .repeatDay: break
+        case .redoWeek(let w): restartWeek(w)
+        case .backToWeek(let w):
+            restartWeek(stop.week)
+            restartWeek(w)
+        }
+    }
+
+    /// The first run back after a stop for pain asks at each walk (D117).
+    private var restartCheckIn: String? {
+        guard case .ready = returnToRun.status else { return nil }
+        return returnToRun.stop?.checkIn
     }
 
     // MARK: Pain
@@ -211,9 +270,9 @@ final class C25KRunner: ObservableObject {
         guard state == .idle || state == .finished, model.activeWorkout == nil else { return false }
         self.model = model
         session = s
-        cues = CueTimeline.cues(for: s, halfway: halfway)
+        cues = CueTimeline.cues(for: s, halfway: halfway, checkIn: s.kind == .plan ? restartCheckIn : nil)
         distanceSamples = []
-        easySpeed = s.week > 0 ? earlierEasySpeed() : nil
+        easySpeed = s.kind == .plan ? earlierEasySpeed() : nil
         speedWarnedSegment = nil
         nextCue = 0
         startedAt = Date()
@@ -225,7 +284,7 @@ final class C25KRunner: ObservableObject {
         segmentIndex = 0
         state = .running
 
-        model.startWorkout(sport: "Running")
+        model.startWorkout(sport: s.kind == .briskWalk ? "Walking" : "Running")
         model.startRealtimeHR()
         voice.prepare()
 
@@ -271,9 +330,13 @@ final class C25KRunner: ObservableObject {
         guard state == .running || state == .paused else { return }
         voice.cancelCountdown()
         voice.say("Workout stopped.", interrupt: true)
+        if session?.kind == .plan { stoppedSession = session }
         tearDown()
         state = .idle
     }
+
+    /// A plan session that was just stopped, waiting for "What made you stop?" (D111).
+    @Published var stoppedSession: GuidedSession?
 
     func dismissFinished() {
         if state == .finished { state = .idle }
@@ -357,7 +420,8 @@ final class C25KRunner: ObservableObject {
         let into = t - Double(session.segmentStarts[i])
         let since = lastCorrectionAt.map { t - $0 }
         if let text = heartRateGuard.correction(segment: session.segments[i].kind, zone: zone,
-                                                secondsIntoSegment: into, secondsSinceLastCorrection: since) {
+                                                secondsIntoSegment: into, secondsSinceLastCorrection: since,
+                                                briskWalk: session.kind == .briskWalk) {
             lastCorrectionAt = t
             say(text, interrupt: false)
         }
@@ -369,13 +433,13 @@ final class C25KRunner: ObservableObject {
     }
 
     private func finish(_ session: GuidedSession) {
-        if session.week > 0, let w = model?.activeWorkout {
+        if session.kind == .plan, let w = model?.activeWorkout {
             link(session, to: C25KLogEntry(startTs: Int(w.start.timeIntervalSince1970),
                                            durationS: session.totalSeconds,
                                            avgHr: w.avgHr > 0 ? w.avgHr : nil,
                                            distanceM: model.map { $0.gpsRecorder.distanceM },
                                            source: .coach))
-        } else if session.week > 0 {
+        } else if session.kind == .plan {
             setCompleted(session, true)
         }
         tearDown()

@@ -71,7 +71,7 @@ public enum RestDayProgress {
         return !pain.contains { e in
             guard e.date > s.date, e.date <= until else { return false }
             switch e.kind {
-            case .report: return true
+            case .report, .rating, .spot: return true
             case .trend(let t): return t == .same || t == .worse
             }
         }

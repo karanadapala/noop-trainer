@@ -2,20 +2,22 @@ import SwiftUI
 import StrandDesign
 import TrainerKit
 
-/// "Anything hurting?": pick the areas, then how each one hurts (D38, D49). Used after a run and from
-/// "Something hurts" on the C25K screen.
+/// "Anything hurting?": pick the areas, then 0–10 for each, or "one sharp spot" (D38, D49, D114). Used
+/// after a run and from "Something hurts" on the C25K screen.
 struct PainReportSheet: View {
     let title: String
     let onSave: ([PainEntry]) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var levels: [BodyArea: PainLevel] = [:]
+    @State private var scores: [BodyArea: Int] = [:]
+    @State private var spots: Set<BodyArea> = []
+    @State private var picked: [BodyArea] = []
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("Tap where it hurts, then how it feels. Tomorrow morning the coach asks whether it's gone, less, the same or worse.")
+                    Text("Tap where it hurts, then how much. Each morning the coach asks again.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -33,20 +35,27 @@ struct PainReportSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         let now = Date()
-                        onSave(levels.map { PainEntry(area: $0.key, date: now, kind: .report($0.value)) })
+                        onSave(picked.compactMap { area in
+                            if spots.contains(area) { return PainEntry(area: area, date: now, kind: .spot) }
+                            return scores[area].map { PainEntry(area: area, date: now, kind: .rating($0)) }
+                        })
                         dismiss()
                     }
-                    .disabled(levels.isEmpty)
+                    .disabled(!canSave)
                 }
             }
         }
     }
 
+    private var canSave: Bool {
+        !picked.isEmpty && picked.allSatisfy { scores[$0] != nil || spots.contains($0) }
+    }
+
     private func areaRow(_ area: BodyArea) -> some View {
-        let on = levels[area] != nil
-        return VStack(alignment: .leading, spacing: 10) {
+        let on = picked.contains(area)
+        return VStack(alignment: .leading, spacing: 12) {
             Button {
-                levels[area] = on ? nil : .mild
+                if on { picked.removeAll { $0 == area } } else { picked.append(area) }
             } label: {
                 HStack {
                     Image(systemName: on ? "checkmark.circle.fill" : "circle")
@@ -60,17 +69,213 @@ struct PainReportSheet: View {
             }
             .buttonStyle(.plain)
             if on {
-                ChoiceChips(options: PainLevel.allCases, label: \.label,
-                            selected: levels[area], tint: StrandPalette.statusWarning) { levels[area] = $0 }
-                if levels[area] == .sharp {
-                    Text("Sharp pain in one spot is worth getting checked. The coach will show you when.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.statusWarning)
+                PainScaleRow(selected: spots.contains(area) ? nil : scores[area]) {
+                    scores[area] = $0
+                    spots.remove(area)
+                }
+                SpotToggle(on: spots.contains(area)) {
+                    if spots.contains(area) { spots.remove(area) } else { spots.insert(area) }
                 }
             }
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(StrandPalette.surfaceRaised))
+    }
+}
+
+/// 0–10 in one row of taps, with the anchor words underneath (D114).
+struct PainScaleRow: View {
+    let selected: Int?
+    let onSelect: (Int) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 3) {
+                ForEach(Array(PainScale.range), id: \.self) { n in
+                    let isOn = n == selected
+                    Button { onSelect(n) } label: {
+                        Text("\(n)")
+                            .font(StrandFont.subhead.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(isOn ? StrandPalette.textPrimary : StrandPalette.textSecondary)
+                            .frame(maxWidth: .infinity, minHeight: 34)
+                            .background(Circle().fill(isOn ? Self.tint(n).opacity(0.3) : StrandPalette.surfaceInset))
+                            .overlay(Circle().stroke(isOn ? Self.tint(n) : .clear, lineWidth: 1.5))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(n) out of 10\(PainScale.anchor(n).map { ", \($0.lowercased())" } ?? "")")
+                    .accessibilityAddTraits(isOn ? .isSelected : [])
+                }
+            }
+            Text(selected.flatMap(Self.caption) ?? "0 none · 3 noticeable · 5 distracting · 8 can't continue")
+                .font(StrandFont.footnote)
+                .foregroundStyle(selected.map { $0 > PainScale.limit ? StrandPalette.statusWarning : StrandPalette.textTertiary }
+                                 ?? StrandPalette.textTertiary)
+        }
+    }
+
+    static func tint(_ n: Int) -> Color {
+        n <= PainScale.limit ? StrandPalette.accent : n < 7 ? StrandPalette.statusWarning : StrandPalette.statusCritical
+    }
+
+    static func caption(_ n: Int) -> String? {
+        let word = PainScale.anchor(n).map { " · \($0)" } ?? ""
+        return n > PainScale.limit ? "\(n)/10\(word): above the 3/10 limit" : "\(n)/10\(word)"
+    }
+}
+
+/// "Sharp pain in one small spot on the bone": its own tap, since it's a red flag whatever the number.
+struct SpotToggle: View {
+    let on: Bool
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: action) {
+                Label("Sharp pain in one small spot on the bone", systemImage: on ? "checkmark.square.fill" : "square")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(on ? StrandPalette.statusWarning : StrandPalette.textSecondary)
+            }
+            .buttonStyle(.plain)
+            if on {
+                Text("That's worth getting checked before running again. The coach will hold runs.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.statusWarning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// "What made you stop?" after a run ended early (D111, D119). Pain asks where, which side, how much,
+/// what it feels like and the fingertip check, then says what to do. Advice, not a diagnosis.
+struct StopSheet: View {
+    let session: GuidedSession
+    let onSave: (RunStop, [PainEntry]) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var reason: StopReason?
+    @State private var area: BodyArea?
+    @State private var side: PainSide?
+    @State private var score: Int?
+    @State private var feel: PainFeel?
+    @State private var spot = false
+    @State private var backPain = false
+    @State private var breathingWarning = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    question("What made you stop?") {
+                        ChoiceChips(options: StopReason.allCases, label: \.label, selected: reason,
+                                    tint: StrandPalette.statusWarning) { reason = $0 }
+                    }
+                    if reason == .breathing {
+                        Toggle(isOn: $breathingWarning) {
+                            Text("Chest pain, feeling faint, or very short of breath even after slowing down")
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                        }
+                        .tint(StrandPalette.statusCritical)
+                    }
+                    if reason == .pain { painQuestions }
+                    if let advice { adviceCard(advice) }
+                }
+                .padding(20)
+            }
+            .background(StrandPalette.surfaceBase)
+            .navigationTitle("Run stopped")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Skip") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }.disabled(!canSave)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var painQuestions: some View {
+        question("Where?") {
+            ChoiceChips(options: BodyArea.allCases, label: \.label, selected: area,
+                        tint: StrandPalette.statusWarning) { area = $0 }
+        }
+        question("Which side?") {
+            ChoiceChips(options: PainSide.allCases, label: \.label, selected: side,
+                        tint: StrandPalette.statusWarning) { side = $0 }
+        }
+        question("Out of 10, how bad is it now, while walking?") {
+            PainScaleRow(selected: score) { score = $0 }
+        }
+        question("What does it feel like?") {
+            ChoiceChips(options: PainFeel.allCases, label: \.label, selected: feel,
+                        tint: StrandPalette.statusWarning) { feel = $0 }
+        }
+        question("Press along it with two fingertips") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Sore along a stretch of a few inches, or in one small spot on the bone?")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                SpotToggle(on: spot) { spot.toggle() }
+            }
+        }
+        if side == .left || side == .right {
+            Toggle(isOn: $backPain) {
+                Text("Back or buttock pain with it")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textPrimary)
+            }
+            .tint(StrandPalette.statusWarning)
+        }
+    }
+
+    private var entry: PainEntry? {
+        guard reason == .pain, let area else { return nil }
+        return PainEntry(area: area, date: Date(), kind: spot ? .spot : .rating(score ?? 0), side: side,
+                         feel: feel, backPain: backPain)
+    }
+
+    private var advice: StopAdvice? {
+        guard let reason else { return nil }
+        if reason == .pain && (area == nil || score == nil) && !spot { return nil }
+        return StopAdvice.after(reason: reason, score: score, spot: spot, nerveSign: entry?.nerveSign ?? false,
+                                breathingWarning: breathingWarning)
+    }
+
+    private var canSave: Bool {
+        guard let reason else { return false }
+        return reason != .pain || (area != nil && (score != nil || spot))
+    }
+
+    private func save() {
+        guard let reason else { return }
+        let stop = RunStop(date: Date(), week: session.week, day: session.day, reason: reason,
+                           painScore: reason == .pain ? score : nil, area: reason == .pain ? area : nil)
+        onSave(stop, entry.map { [$0] } ?? [])
+        dismiss()
+    }
+
+    private func question<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.textPrimary)
+            content()
+        }
+    }
+
+    private func adviceCard(_ advice: StopAdvice) -> some View {
+        let tint = advice == .urgent ? StrandPalette.statusCritical
+            : advice == .walkHomeGetChecked ? StrandPalette.statusWarning : StrandPalette.accent
+        return Text(advice.text)
+            .font(StrandFont.body.weight(.semibold))
+            .foregroundStyle(StrandPalette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(tint.opacity(0.18)))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(tint, lineWidth: 1))
     }
 }
 

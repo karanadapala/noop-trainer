@@ -527,3 +527,162 @@ final class RestCardExtrasTests: XCTestCase {
         XCTAssertEqual(WeekRestart.label(attempt: 11), "11th time")
     }
 }
+
+final class PainScaleTests: XCTestCase {
+    var calendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "America/New_York")!
+        return c
+    }()
+
+    func at(_ day: Int, _ hour: Int) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour))!
+    }
+
+    func testMorningScoresBecomeTrends() {
+        XCTAssertEqual(PainTrend.from(score: 0, previous: 5), .gone)
+        XCTAssertEqual(PainTrend.from(score: 2, previous: 5), .less)
+        XCTAssertEqual(PainTrend.from(score: 5, previous: 5), .same)
+        XCTAssertEqual(PainTrend.from(score: 6, previous: 5), .worse)
+        XCTAssertEqual(PainTrend.from(score: 3, previous: nil), .same)
+        // Old word answers carry over onto the scale.
+        XCTAssertEqual(PainEntry(area: .feet, date: at(27, 9), kind: .report(.mild)).value, 2)
+        XCTAssertEqual(PainEntry(area: .feet, date: at(27, 9), kind: .report(.worsening)).value, 5)
+    }
+
+    func testRatingsSpotsAndNerveSigns() {
+        let rating = PainEntry(area: .shins, date: at(31, 9), kind: .rating(6), side: .left, feel: .tight)
+        var s = PainState(entries: [rating], now: at(31, 12), calendar: calendar)
+        XCTAssertEqual(s.active, [.shins])
+        XCTAssertFalse(s.isOnHold)
+        XCTAssertEqual(s.summary(.shins), "6/10")
+        XCTAssertEqual(s.lastScore(.shins), 6)
+        // The next morning's 2/10 reads as less than yesterday.
+        let morning = PainEntry.morning(area: .shins, date: at(32 - 1 + 1, 7), score: 2, previous: s.lastScore(.shins))
+        s = PainState(entries: [rating, morning], now: at(32 - 1 + 1, 8), calendar: calendar)
+        XCTAssertEqual(s.summary(.shins), "Less than yesterday · 2/10")
+
+        let spot = PainEntry(area: .shins, date: at(31, 9), kind: .spot)
+        XCTAssertTrue(PainState(entries: [spot], now: at(31, 10), calendar: calendar).showRedFlags)
+        // Tingling, or one side with back pain: a nerve sign, which holds and shows the red flags.
+        let tingle = PainEntry(area: .shins, date: at(31, 9), kind: .rating(3), side: .left, feel: .tingling)
+        XCTAssertTrue(tingle.nerveSign)
+        let back = PainEntry(area: .shins, date: at(31, 9), kind: .rating(3), side: .left, backPain: true)
+        XCTAssertTrue(back.nerveSign)
+        XCTAssertFalse(PainEntry(area: .shins, date: at(31, 9), kind: .rating(3), side: .both, backPain: true).nerveSign)
+        let held = PainState(entries: [back], now: at(31, 10), calendar: calendar)
+        XCTAssertTrue(held.isOnHold)
+        XCTAssertTrue(held.showRedFlags)
+    }
+
+    func testOldEntriesStillDecode() throws {
+        let old = #"[{"area":"feet","date":800000000,"kind":{"report":{"_0":"mild"}}}]"#
+        let decoded = try JSONDecoder().decode([PainEntry].self, from: Data(old.utf8))
+        XCTAssertEqual(decoded.first?.kind, .report(.mild))
+        XCTAssertNil(decoded.first?.score)
+    }
+}
+
+final class ReturnToRunTests: XCTestCase {
+    var calendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "America/New_York")!
+        return c
+    }()
+
+    /// Days counted from Saturday Oct 31 (day 0), so day 2 is Monday Nov 2.
+    func at(_ day: Int, _ hour: Int) -> Date {
+        calendar.date(byAdding: .hour, value: day * 24 + hour,
+                      to: calendar.date(from: DateComponents(year: 2026, month: 10, day: 31))!)!
+    }
+
+    let stop = { (d: Date) in RunStop(date: d, week: 2, day: 2, reason: .pain, painScore: 6) }
+
+    func status(_ gates: [GateEntry], pain: [PainEntry] = [], now: Date, ran: Date? = nil,
+                redFlag: Bool = false, stops: [RunStop]? = nil) -> ReturnToRun.Status {
+        ReturnToRun(stops: stops ?? [stop(at(0, 8))], gates: gates, pain: pain, lastCompletedRun: ran,
+                    redFlag: redFlag, now: now, calendar: calendar).status
+    }
+
+    func pass(_ day: Int, _ step: GateEntry.Step, _ ok: Bool = true) -> GateEntry {
+        GateEntry(date: at(day, step == .basics ? 7 : 10), step: step, passed: ok)
+    }
+
+    func testStepsInOrderOverTwoDays() {
+        XCTAssertEqual(status([], now: at(0, 20)), .checking(next: .basics, daysPassed: 0, failedToday: false))
+        XCTAssertEqual(status([pass(1, .basics)], now: at(1, 8)), .checking(next: .walk, daysPassed: 0, failedToday: false))
+        let day1 = [pass(1, .basics), pass(1, .walk)]
+        XCTAssertEqual(status(day1, now: at(1, 12)), .doneForToday(daysPassed: 1))
+        XCTAssertEqual(status(day1, now: at(2, 6)), .checking(next: .basics, daysPassed: 1, failedToday: false))
+        let day2 = day1 + [pass(2, .basics), pass(2, .walk)]
+        XCTAssertEqual(status(day2, now: at(2, 12)), .checking(next: .hopAndHeel, daysPassed: 2, failedToday: false))
+        // Hops the next morning still count.
+        let ready = status(day2 + [pass(3, .hopAndHeel)], now: at(3, 9))
+        if case .ready = ready {} else { XCTFail("expected ready, got \(ready)") }
+        XCTAssertTrue(ReturnToRun(stops: [stop(at(0, 8))], gates: day2, pain: [], lastCompletedRun: nil,
+                                  redFlag: false, now: at(2, 12), calendar: calendar).holdsRuns)
+    }
+
+    func testFailuresAndMissedDaysReset() {
+        let gates = [pass(1, .basics), pass(1, .walk), pass(2, .basics), pass(2, .walk, false)]
+        XCTAssertEqual(status(gates, now: at(2, 12)), .checking(next: .walk, daysPassed: 0, failedToday: true))
+        // Day 2 skipped entirely: day 3 starts the count again.
+        let skipped = [pass(1, .basics), pass(1, .walk), pass(3, .basics), pass(3, .walk)]
+        XCTAssertEqual(status(skipped, now: at(3, 12)), .doneForToday(daysPassed: 1))
+    }
+
+    func testRedFlagsTimeOutAndARunEndIt() {
+        if case .seeClinician = status([], now: at(1, 8), redFlag: true) {} else { XCTFail() }
+        if case .seeClinician = status([], now: at(11, 8)) {} else { XCTFail() }
+        XCTAssertEqual(status([], now: at(3, 8), ran: at(2, 8)), .notNeeded)
+        XCTAssertEqual(status([], now: at(3, 8), stops: [RunStop(date: at(0, 8), week: 2, day: 2, reason: .tiredLegs)]),
+                       .notNeeded)
+    }
+
+    func testWhereThePlanRestarts() {
+        let gates = [pass(1, .basics), pass(1, .walk), pass(2, .basics), pass(2, .walk), pass(2, .hopAndHeel)]
+        let gone = PainEntry.morning(area: .shins, date: at(1, 7), score: 0, previous: 6)
+        let lingering = PainEntry.morning(area: .shins, date: at(1, 7), score: 3, previous: 6)
+        XCTAssertEqual(status(gates, pain: [gone], now: at(2, 12)), .ready(.repeatDay))
+        XCTAssertEqual(status(gates, pain: [lingering], now: at(2, 12)), .ready(.backToWeek(1)))
+        // No morning answer counts as not settled.
+        XCTAssertEqual(status(gates, now: at(2, 12)), .ready(.backToWeek(1)))
+        // A second stop for pain in the same week: the week again.
+        let twice = [RunStop(date: at(-2, 8), week: 2, day: 1, reason: .pain, painScore: 2), stop(at(0, 8))]
+        XCTAssertEqual(status(gates, pain: [gone], now: at(2, 12), stops: twice), .ready(.redoWeek(2)))
+        // Checks that took more than 5 days: the week again.
+        let slow = [pass(5, .basics), pass(5, .walk), pass(6, .basics), pass(6, .walk), pass(6, .hopAndHeel)]
+        XCTAssertEqual(status(slow, pain: [gone], now: at(6, 12)), .ready(.redoWeek(2)))
+    }
+
+    func testStopAdvice() {
+        XCTAssertEqual(StopAdvice.after(reason: .breathing, score: nil, spot: false, nerveSign: false, breathingWarning: true), .urgent)
+        XCTAssertEqual(StopAdvice.after(reason: .pain, score: 5, spot: false, nerveSign: false, breathingWarning: false), .walkHomeGetChecked)
+        XCTAssertEqual(StopAdvice.after(reason: .pain, score: 2, spot: true, nerveSign: false, breathingWarning: false), .walkHomeGetChecked)
+        XCTAssertEqual(StopAdvice.after(reason: .pain, score: 2, spot: false, nerveSign: true, breathingWarning: false), .walkHomeGetChecked)
+        XCTAssertEqual(StopAdvice.after(reason: .pain, score: 4, spot: false, nerveSign: false, breathingWarning: false), .walkOrHeadHome)
+    }
+}
+
+final class BriskWalkTests: XCTestCase {
+    func testBriskWalkCuesAndHeartRateCap() {
+        let walk = C25K.briskWalk(minutes: 20)
+        XCTAssertEqual(walk.id, "walk20")
+        XCTAssertEqual(walk.totalSeconds, 1200)
+        let cues = CueTimeline.cues(for: walk, halfway: .outAndBack)
+        XCTAssertEqual(cues.first?.text, "Brisk walk for 20 minutes. Keep it conversational: you should be able to talk.")
+        XCTAssertEqual(cues.last?.text, "Walk complete. Nice work.")
+        XCTAssertTrue(cues.contains { $0.text == "Halfway. Turn around." && $0.at == 600 })
+        let g = HeartRateGuard()
+        XCTAssertNotNil(g.correction(segment: .walk, zone: 3, secondsIntoSegment: 150, secondsSinceLastCorrection: nil, briskWalk: true))
+        XCTAssertNil(g.correction(segment: .walk, zone: 3, secondsIntoSegment: 60, secondsSinceLastCorrection: nil, briskWalk: true))
+        XCTAssertNil(g.correction(segment: .walk, zone: 2, secondsIntoSegment: 150, secondsSinceLastCorrection: nil, briskWalk: true))
+    }
+
+    func testRestartRunsCheckInOnEachWalk() throws {
+        let s = try XCTUnwrap(C25K.session(week: 1, day: 1))
+        let cues = CueTimeline.cues(for: s, checkIn: "How's the shin? 4 out of 10 or more, walk the rest.")
+        XCTAssertEqual(cues.filter { $0.text.hasSuffix("walk the rest.") }.count, 8)
+        XCTAssertEqual(CueTimeline.cues(for: s).filter { $0.text.contains("shin") }.count, 0)
+    }
+}
