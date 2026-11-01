@@ -109,6 +109,17 @@ final class C25KRunner: ObservableObject {
         applyRestartIfReady()
     }
 
+    /// Today's answer to the basics, if any; the walk is recorded by the walk itself.
+    var todaysBasics: GateEntry? {
+        gates.last { $0.step == .basics && Calendar.current.isDateInToday($0.date) }
+    }
+
+    /// Takes back today's basics answer (a mis-tap), so the card asks again.
+    func undoTodaysBasics() {
+        gates.removeAll { $0.step == .basics && Calendar.current.isDateInToday($0.date) }
+        Self.save(gates, Self.gatesKey)
+    }
+
     var returnToRun: ReturnToRun {
         ReturnToRun(stops: stops, gates: gates, pain: pain, lastCompletedRun: lastRunDate,
                     redFlag: painState.showRedFlags, now: Date())
@@ -143,7 +154,26 @@ final class C25KRunner: ObservableObject {
     func recordPain(_ entries: [PainEntry]) {
         guard !entries.isEmpty else { return }
         pain.append(contentsOf: entries)
-        if let data = try? JSONEncoder().encode(pain) { UserDefaults.standard.set(data, forKey: Self.painKey) }
+        Self.save(pain, Self.painKey)
+    }
+
+    /// Today's morning 0–10 answer for an area, if it has one.
+    func todaysMorningScore(_ area: BodyArea) -> Int? {
+        pain.last { Self.isTodaysMorning($0, area) }?.score
+    }
+
+    /// Replaces today's morning answer for an area (a mis-tap). The trend is worked out again against
+    /// the answer before it, so a wrong "worse" doesn't leave a hold or a red flag behind.
+    func changeMorning(_ area: BodyArea, score: Int) {
+        pain.removeAll { Self.isTodaysMorning($0, area) }
+        let previous = PainState(entries: pain, now: Date()).lastScore(area)
+        pain.append(.morning(area: area, date: Date(), score: score, previous: previous))
+        Self.save(pain, Self.painKey)
+    }
+
+    private static func isTodaysMorning(_ e: PainEntry, _ area: BodyArea) -> Bool {
+        guard e.area == area, e.score != nil, case .trend = e.kind else { return false }
+        return Calendar.current.isDateInToday(e.date)
     }
 
     // MARK: Progress

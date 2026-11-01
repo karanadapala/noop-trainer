@@ -25,6 +25,8 @@ struct C25KView: View {
     @State private var confirmRestart: Int?
     @State private var takingCalfTest = false
     @State private var loggingStop: GuidedSession?
+    /// The area whose morning answer is being changed (a mis-tap).
+    @State private var changingArea: BodyArea?
 
     private var picked: GuidedSession? { C25K.session(week: week, day: day) }
     private var isPickedNext: Bool { week == runner.nextSession.week && day == runner.nextSession.day }
@@ -424,14 +426,25 @@ struct C25KView: View {
                         .foregroundStyle(StrandPalette.accent)
                 }
                 ForEach(state.active, id: \.self) { area in
-                    if state.needsCheck.contains(area) {
+                    if state.needsCheck.contains(area) || changingArea == area {
+                        let changing = changingArea == area
                         VStack(alignment: .leading, spacing: 10) {
                             Text("\(area.label): out of 10, on your first steps today?")
                                 .font(StrandFont.headline)
                                 .foregroundStyle(StrandPalette.textPrimary)
-                            PainScaleRow(selected: nil) { score in
-                                runner.recordPain([.morning(area: area, date: Date(), score: score,
-                                                            previous: state.lastScore(area))])
+                            PainScaleRow(selected: changing ? runner.todaysMorningScore(area) : nil) { score in
+                                if changing {
+                                    runner.changeMorning(area, score: score)
+                                    changingArea = nil
+                                } else {
+                                    runner.recordPain([.morning(area: area, date: Date(), score: score,
+                                                                previous: state.lastScore(area))])
+                                }
+                            }
+                            if changing {
+                                Button("Keep it as it was") { changingArea = nil }
+                                    .font(StrandFont.subhead.weight(.semibold))
+                                    .foregroundStyle(StrandPalette.accent)
                             }
                         }
                     } else {
@@ -443,6 +456,12 @@ struct C25KView: View {
                             Text(state.summary(area) ?? "")
                                 .font(StrandFont.subhead)
                                 .foregroundStyle(StrandPalette.textSecondary)
+                            if runner.todaysMorningScore(area) != nil {
+                                Button("Change") { changingArea = area }
+                                    .font(StrandFont.subhead.weight(.semibold))
+                                    .foregroundStyle(StrandPalette.accent)
+                                    .accessibilityLabel("Change today's \(area.label.lowercased()) answer")
+                            }
                         }
                     }
                 }
@@ -627,6 +646,9 @@ struct C25KView: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                 case .checking(let next, let days, let failed):
                     comebackSteps(next: next, days: days)
+                    if runner.todaysBasics != nil {
+                        textLink("Change today's answer", systemImage: "arrow.uturn.backward") { runner.undoTodaysBasics() }
+                    }
                     if failed {
                         Text("Not yet today. Rest it, keep the easy exercises at 3 out of 10 or less, and try again tomorrow morning.")
                             .font(StrandFont.subhead)
