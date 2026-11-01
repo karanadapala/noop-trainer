@@ -45,6 +45,7 @@ struct C25KView: View {
         ScreenScaffold(title: "C25K Coach", subtitle: "Couch to 5K in nine weeks, coached by voice.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 statusRow
+                    .fadesNavigationBarOnScroll()
                 switch runner.state {
                 case .running, .paused:
                     activeCard

@@ -530,10 +530,7 @@ struct RootTabView: View {
                 route.destination
                     .background(StrandPalette.surfaceBase.ignoresSafeArea())
                     .navigationBarTitleDisplayMode(.inline)
-                    // NOOP Trainer: a flat screen has no sky to keep edge-to-edge, so its bar fills in
-                    // once content scrolls under Back (hidden at rest, as before).
-                    .toolbarBackground(StrandPalette.surfaceBase, for: .navigationBar)
-                    .toolbarBackground(route.flatCanvas ? .automatic : .hidden, for: .navigationBar)
+                    .toolbarBackground(.hidden, for: .navigationBar)
             }
         }
         // Scroll the More index to the top on an at-root re-tap (#198 follow-up); read by its ScreenScaffold.
@@ -605,9 +602,6 @@ private enum MoreDestination: Hashable {
     case c25k, live, workouts, liftLog, health, labBook, stress, breathe, intervals, rhythm
     case fusedRecord, appleHealth, miBand, dataSources, backupSync, shortcutsExport, noopLimitations
     case alarms, automations, testCentre, siriShortcuts, powerSaving, settings
-
-    /// Screens without a sky backdrop (NOOP Trainer's own), where the bar may fill in on scroll.
-    var flatCanvas: Bool { self == .c25k }
 
     @ViewBuilder var destination: some View {
         switch self {
