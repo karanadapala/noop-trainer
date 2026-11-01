@@ -180,6 +180,8 @@ public struct PainState: Equatable, Sendable {
     public let showRedFlags: Bool
     /// An area got worse the morning after, in the last week: repeating the week is worth suggesting.
     public let suggestRepeatingWeek: Bool
+    /// Areas with a red flag (spot, nerve sign, worse than yesterday): no exercise loads them (D113).
+    public let redFlagAreas: [BodyArea]
     private let latest: [BodyArea: PainEntry]
 
     public var isOnHold: Bool { !holds.isEmpty }
@@ -193,6 +195,7 @@ public struct PainState: Equatable, Sendable {
         var needsCheck: [BodyArea] = []
         var holds: [Hold] = []
         var redFlags = false
+        var flagged: [BodyArea] = []
         for area in BodyArea.allCases {
             guard let e = latest[area], e.kind != .trend(.gone) else { continue }
             active.append(area)
@@ -201,17 +204,20 @@ public struct PainState: Equatable, Sendable {
             if e.nerveSign {
                 holds.append(Hold(area: area, reason: "\(area.label): tingling or back pain with it"))
                 redFlags = true
+                flagged.append(area)
                 continue
             }
             switch e.kind {
             case .report(.sharp), .spot:
                 holds.append(Hold(area: area, reason: "\(area.label): sharp pain in one spot"))
                 redFlags = true
+                flagged.append(area)
             case .trend(.same) where isToday:
                 holds.append(Hold(area: area, reason: "\(area.label): same as yesterday"))
             case .trend(.worse) where isToday:
                 holds.append(Hold(area: area, reason: "\(area.label): worse than yesterday"))
                 redFlags = true
+                flagged.append(area)
             default:
                 break
             }
@@ -221,6 +227,7 @@ public struct PainState: Equatable, Sendable {
         self.needsCheck = needsCheck
         self.holds = holds
         self.showRedFlags = redFlags
+        self.redFlagAreas = flagged
         self.suggestRepeatingWeek = entries.contains { $0.kind == .trend(.worse) && $0.date >= weekAgo }
         self.latest = latest
     }

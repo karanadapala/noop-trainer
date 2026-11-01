@@ -45,6 +45,8 @@ final class CueTimelineTests: XCTestCase {
         XCTAssertTrue(cues.contains { $0.text == "Last run! Run for 90 seconds." })
         XCTAssertTrue(cues.contains(Cue(at: 390, text: "Walk for 2 minutes.", priority: .transition)))
         XCTAssertTrue(cues.contains(Cue(at: 360, text: "30 seconds left.", priority: .status)))
+        XCTAssertTrue(cues.contains(Cue(at: 240, text: CueTimeline.warmUpLastMinute, priority: .status)))
+        XCTAssertFalse(cues.contains { $0.text == "One minute left." && $0.at == 240 })
         XCTAssertEqual(cues.last?.at, Double(s.totalSeconds))
         XCTAssertTrue(cues.last?.text.hasPrefix("Workout complete") ?? false)
         // Sorted, and one countdown before each of the 13 changes.
@@ -357,19 +359,69 @@ final class RestRoutineTests: XCTestCase {
         XCTAssertEqual(RoutineBuilder.variant(for: input(inARow: 1)), .steady)
     }
 
-    func testHoldMeansProtectAndSoreAreasAreLeftOut() {
+    func testSoreAreasAreTrainedAndRedFlagsProtected() {
         let now = Date()
         let feet = [PainEntry(area: .feet, date: now.addingTimeInterval(-86_400), kind: .report(.mild)),
                     PainEntry(area: .feet, date: now, kind: .trend(.same))]
+        // A hold without a red flag: Steady at most, not Protect (D113).
         let held = PainState(entries: feet, now: now)
-        XCTAssertEqual(RoutineBuilder.variant(for: input(pain: held)), .protect)
-        // Mild feet without a hold: still Build, but nothing that loads the feet.
+        XCTAssertEqual(RoutineBuilder.variant(for: input(pain: held)), .steady)
+        // Mild feet: still Build, the feet's easy work comes first, and the pain rule is spoken.
         let mild = PainState(entries: [feet[0]], now: now.addingTimeInterval(-3_600))
         let r = RoutineBuilder.routine(for: input(pain: mild))
         XCTAssertEqual(r.variant, .build)
-        XCTAssertFalse(r.items.contains { $0.exercise.loads.contains(.feet) })
-        XCTAssertEqual(r.skippedAreas, [.feet])
-        XCTAssertTrue(r.items.contains { $0.exercise.id == "bridge" })
+        XCTAssertEqual(r.focusAreas, [.feet])
+        XCTAssertEqual(Array(r.items.prefix(3).map(\.exercise.id)), ["shortFoot", "toeYoga", "bandInversion"])
+        // First-stage doses, trimmed to the 10-minute cap for the focused block.
+        XCTAssertTrue(r.items.prefix(3).allSatisfy { $0.dose.sets <= $0.exercise.dose(.learn).sets })
+        let focusSeconds = r.items.prefix(3).map(\.dose.estimatedSeconds).reduce(0, +)
+        XCTAssertLessThanOrEqual(focusSeconds, 10 * 60)
+        XCTAssertEqual(r.skippedAreas, [])
+        XCTAssertNotNil(r.painRule)
+        XCTAssertTrue(r.items.contains { $0.exercise.id == "bridge" }, "\(r.items.map(\.exercise.id))")
+        // Nothing harder from the everyday rotation loads the sore feet.
+        XCTAssertFalse(r.items.dropFirst(3).contains { $0.exercise.loads.contains(.feet) })
+        // A red flag: Protect, and nothing loads that area.
+        let spot = PainState(entries: [PainEntry(area: .feet, date: now, kind: .spot)], now: now)
+        let p = RoutineBuilder.routine(for: input(pain: spot))
+        XCTAssertEqual(p.variant, .protect)
+        XCTAssertEqual(p.skippedAreas, [.feet])
+        XCTAssertFalse(p.items.contains { $0.exercise.loads.contains(.feet) })
+    }
+
+    func testBaseBlockAfterARun() {
+        let now = Date()
+        let base = RoutineBuilder.base(pain: PainState(entries: [], now: now), focus: [])
+        XCTAssertEqual(base.variant, .base)
+        XCTAssertEqual(base.items.first?.exercise.id, "tibRaise")
+        XCTAssertTrue(base.items.allSatisfy { $0.dose.sets == 1 })
+        XCTAssertLessThanOrEqual(base.estimatedMinutes, 6)
+        XCTAssertNil(base.painRule)
+        // With shins in focus, their easy work leads and isn't repeated.
+        let shins = RoutineBuilder.base(pain: PainState(entries: [], now: now), focus: [.shins])
+        XCTAssertEqual(Array(shins.items.prefix(2).map(\.exercise.id)), ["tibRaise", "bandInversion"])
+        XCTAssertEqual(shins.items.filter { $0.exercise.id == "tibRaise" }.count, 1)
+        XCTAssertNotNil(shins.painRule)
+        XCTAssertFalse(RoutineVariant.restDay.contains(.base))
+    }
+
+    func testFocusAreasLastThreeWeeksAndSixClearRuns() {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "America/New_York")!
+        let start = c.date(from: DateComponents(year: 2026, month: 10, day: 31, hour: 8))!
+        func day(_ n: Int) -> Date { start.addingTimeInterval(Double(n) * 86_400) }
+        let stop = RunStop(date: start, week: 2, day: 2, reason: .pain, painScore: 6, area: .shins)
+        let foot = PainEntry(area: .feet, date: day(-2), kind: .rating(3))
+        let runs = (1...8).map { day($0 * 2 + 4) }
+        let passed = CalfBenchmark(date: day(20), left: 22, right: 21)
+        func focus(_ now: Int, runs: [Date] = runs, tests: [CalfBenchmark] = [passed]) -> [BodyArea] {
+            FocusAreas.current(pain: [foot], stops: [stop], runs: runs, benchmarks: tests, now: day(now), calendar: c)
+        }
+        XCTAssertEqual(focus(1), [.shins, .feet])        // newest first
+        XCTAssertEqual(focus(20).first, .shins)          // under 3 weeks
+        XCTAssertFalse(focus(22).contains(.shins))       // 3 weeks, 6+ clear runs, test passed
+        XCTAssertTrue(focus(22, tests: [CalfBenchmark(date: day(20), left: 22, right: 15)]).contains(.shins))
+        XCTAssertTrue(focus(22, runs: Array(runs.prefix(3))).contains(.shins))
     }
 
     func testLengthsMatchTheDesign() {

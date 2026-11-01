@@ -164,6 +164,9 @@ final class C25KRunner: ObservableObject {
 
     func logEntry(_ s: GuidedSession) -> C25KLogEntry? { log[Self.key(s)] }
 
+    /// Every finished run, including ones from before a week was restarted.
+    var completedRunDates: [Date] { (Array(log.values) + Array(archive.values)).map(\.date) }
+
     /// The latest run, including ones from before a week was restarted.
     var lastRunDate: Date? { lastRun?.entry.date }
 

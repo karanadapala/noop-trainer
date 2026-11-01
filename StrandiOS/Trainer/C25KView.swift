@@ -31,6 +31,11 @@ struct C25KView: View {
     private var charge: Double? { repo.today?.recovery }
     private var painState: PainState { runner.painState }
     private var comeback: ReturnToRun { runner.returnToRun }
+    /// Sore areas with their own strengthening block (D118).
+    private var focusAreas: [BodyArea] {
+        FocusAreas.current(pain: runner.pain, stops: runner.stops, runs: runner.completedRunDates,
+                           benchmarks: routineRunner.benchmarks, now: Date())
+    }
 
     private var lastRun: Date? { runner.lastRunDate }
 
@@ -270,7 +275,8 @@ struct C25KView: View {
             charge: charge, legs: legs, pain: painState, restDayInARow: restDayInARow, programWeek: week,
             stages: RestDayProgress.stages(log: routineRunner.sessions, pain: runner.pain, programWeek: week,
                                            repeatingWeek: runner.attempt(week: week) > 1),
-            lastStrengthBlock: routineRunner.lastStrengthBlock, rotation: routineRunner.sessions.count)
+            lastStrengthBlock: routineRunner.lastStrengthBlock, rotation: routineRunner.sessions.count,
+            focus: focusAreas)
     }
 
     @ViewBuilder
@@ -290,7 +296,7 @@ struct C25KView: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                     Spacer()
                     Menu {
-                        ForEach(RoutineVariant.allCases.reversed(), id: \.self) { v in
+                        ForEach(RoutineVariant.restDay.reversed(), id: \.self) { v in
                             Button(v == suggested ? "\(v.label) (suggested)" : v.label) { routineChoice = v }
                         }
                     } label: {
@@ -309,8 +315,14 @@ struct C25KView: View {
                         routineLine(item.exercise.name, item.dose.variant)
                     }
                 }
+                if !routine.focusAreas.isEmpty {
+                    Text(Self.focusNote(routine.focusAreas))
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if !routine.skippedAreas.isEmpty {
-                    Text("Leaving out anything that loads your \(routine.skippedAreas.map { $0.label.lowercased() }.joined(separator: " and ")) while it hurts.")
+                    Text("Leaving out anything that loads your \(Self.areaList(routine.skippedAreas)) until it's been checked.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.statusWarning)
                         .fixedSize(horizontal: false, vertical: true)
@@ -885,6 +897,24 @@ struct C25KView: View {
         }
     }
 
+    /// The five easy minutes for shins, calves and feet after a run (D55, D118).
+    private var baseBlockOffer: some View {
+        let base = RoutineBuilder.base(pain: painState, focus: focusAreas)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Base block · about \(base.estimatedMinutes) min")
+                .font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text(base.focusAreas.isEmpty ? "Easy shin, calf and foot work while you cool down. Voice-guided."
+                 : Self.focusNote(base.focusAreas))
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            NoopButton("Start the base block", systemImage: "play.fill", kind: .secondary, fullWidth: true) {
+                if !routineRunner.start(base) { blockedByWorkout = true }
+            }
+        }
+    }
+
     private var finishedCard: some View {
         StrandCard(padding: 20, tint: StrandPalette.accent) {
             VStack(alignment: .leading, spacing: 12) {
@@ -896,6 +926,8 @@ struct C25KView: View {
                     Text("Saved in Workouts. Tomorrow is a rest day.")
                         .font(StrandFont.body)
                         .foregroundStyle(StrandPalette.textSecondary)
+                    Divider().overlay(StrandPalette.hairline)
+                    baseBlockOffer
                     if !askedAfterRun {
                         Divider().overlay(StrandPalette.hairline)
                         Text("Anything hurting?")
@@ -941,6 +973,15 @@ struct C25KView: View {
     }
 
     // MARK: Helpers
+
+    static func areaList(_ areas: [BodyArea]) -> String {
+        areas.map { $0.label.lowercased() }.joined(separator: " and ")
+    }
+
+    /// Honest about what the exercises do (D118): the running dose heals, these build strength around it.
+    static func focusNote(_ areas: [BodyArea]) -> String {
+        "Your \(areaList(areas)) come first, with easy work kept at 3 out of 10 or less. Easing the running is what lets it settle; these build strength around it."
+    }
 
     private func selectNext() {
         week = runner.nextSession.week

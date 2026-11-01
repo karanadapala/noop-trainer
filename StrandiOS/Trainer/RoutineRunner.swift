@@ -223,7 +223,8 @@ final class RoutineRunner: ObservableObject {
         let ids = routine.items.map(\.exercise.id)
         let skipped = ids.filter { skippedIDs.contains($0) || (early && !reached.contains($0)) }
         let done = ids.filter { !skipped.contains($0) && reached.contains($0) }
-        if !done.isEmpty {
+        // The after-run base block isn't a rest-day routine: it doesn't move stages or fill rest dots.
+        if !done.isEmpty && routine.variant != .base {
             sessions.append(RestSessionLog(date: Date(), variant: routine.variant, stages: routine.stages,
                                            skipped: skipped, done: done))
             Self.save(sessions, Self.sessionsKey)

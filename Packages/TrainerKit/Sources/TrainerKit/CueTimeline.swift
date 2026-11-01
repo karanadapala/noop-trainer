@@ -68,6 +68,8 @@ public enum CueTimeline {
     /// The countdown starts this many seconds before a change: beeps at -3, -2, -1 and a long one at 0.
     public static let countdownLead = 3.0
 
+    public static let warmUpLastMinute = "One minute left of the warm-up. Ten ankle circles each way, then ten easy calf raises. When you run: quicker, shorter steps."
+
     /// A halfway cue this close to another cue joins it instead of talking over it.
     public static let halfwayJoinWindow = 15.0
 
@@ -99,7 +101,10 @@ public enum CueTimeline {
                 if let text { out.append(Cue(at: start + Double(seg.seconds) / 2, text: text, priority: .status)) }
             }
             // A heads-up before the end of segments long enough for it to mean something.
-            if seg.seconds >= 300 {
+            if seg.kind == .warmUp && session.kind == .plan && seg.seconds >= 300 {
+                // Run-day extras (D55) and the step reminder (D120) in the warm-up's last minute.
+                out.append(Cue(at: end - 60, text: warmUpLastMinute, priority: .status))
+            } else if seg.seconds >= 300 {
                 out.append(Cue(at: end - 60, text: "One minute left.", priority: .status))
             } else if seg.seconds >= 75 {
                 out.append(Cue(at: end - 30, text: "30 seconds left.", priority: .status))

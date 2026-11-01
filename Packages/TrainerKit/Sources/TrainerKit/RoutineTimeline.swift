@@ -57,6 +57,7 @@ public struct RoutineTimeline: Equatable, Sendable {
         }
 
         let intro = "\(routine.variant.label) routine, about \(routine.estimatedMinutes) minutes."
+            + (routine.painRule.map { " " + $0 } ?? "")
         if routine.walkMinutes > 0 {
             let s = add(.walk, routine.walkMinutes * 60, nil, "Easy walk", "\(routine.walkMinutes) minutes, easy enough to chat")
             cues.append(Cue(at: s, text: "\(intro) Start with an easy walk for \(CueTimeline.spokenDuration(routine.walkMinutes * 60)). Keep it conversational.",

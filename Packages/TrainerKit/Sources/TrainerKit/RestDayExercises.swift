@@ -183,6 +183,31 @@ public enum RestDayCatalogue {
                  [.learn: Dose(sets: 2, .reps(10), variant: "Sit-to-stand from the chair"),
                   .build: Dose(sets: 2, .reps(8), perSide: true, variant: "Split squat"),
                   .strengthen: Dose(sets: 3, .reps(10), perSide: true, variant: "Split squat holding the dumbbells")]),
+        // Pain-led additions (research 06 §7a): easy, daily-safe work for a sore area.
+        Exercise("bandInversion", "Band inversion", .lowerLeg,
+                 howTo: "Seated, band around the front of your foot, anchored to the outside. Turn the sole inwards against it, slowly.",
+                 link: nil, loads: [.shins, .feet],
+                 [.learn: Dose(sets: 2, .reps(12), perSide: true, variant: "Light band"),
+                  .build: Dose(sets: 3, .reps(15), perSide: true, variant: "Light band"),
+                  .strengthen: Dose(sets: 3, .reps(15), perSide: true, variant: "Band doubled")]),
+        Exercise("calfHold", "Calf hold", .lowerLeg,
+                 howTo: "Hands on the wall, rise halfway onto the ball of one foot and hold still. Calm, not burning.",
+                 link: nil, loads: [.calves],
+                 [.learn: Dose(sets: 3, .hold(30), perSide: true, variant: "Halfway up, both hands on the wall"),
+                  .build: Dose(sets: 4, .hold(30), perSide: true, variant: "Halfway up"),
+                  .strengthen: Dose(sets: 5, .hold(30), perSide: true, variant: "Halfway up")]),
+        Exercise("wallSit", "Wall sit", .hipThigh,
+                 howTo: "Back flat on the wall, slide down only as far as stays comfortable for the knee, then hold.",
+                 link: nhsKnee, loads: [.knees],
+                 [.learn: Dose(sets: 3, .hold(30), variant: "Shallow"),
+                  .build: Dose(sets: 4, .hold(40), variant: "A little deeper, if it stays comfortable"),
+                  .strengthen: Dose(sets: 5, .hold(45), variant: "Thighs closer to level")]),
+        Exercise("clamshell", "Clamshell", .hipThigh,
+                 howTo: "Lie on your side, knees bent, feet together. Open the top knee like a clamshell, hips still.",
+                 link: nil, loads: [.hips],
+                 [.learn: Dose(sets: 2, .reps(12), perSide: true, variant: "No band"),
+                  .build: Dose(sets: 3, .reps(15), perSide: true, variant: "Band around your knees"),
+                  .strengthen: Dose(sets: 3, .reps(15), perSide: true, variant: "Band around your knees")]),
         Exercise("calfStretch", "Calf stretch", .mobility,
                  howTo: "Hands on the wall, one leg back, heel down. Straight knee, then bend it slightly.",
                  link: nhsFlex, loads: [.calves], optional: true,
@@ -193,5 +218,22 @@ public enum RestDayCatalogue {
                  [.learn: Dose(sets: 2, .hold(30), perSide: true, variant: "Kneeling on the folded mat")]),
     ]
 
-    public static func exercises(in block: Block) -> [Exercise] { all.filter { $0.block == block } }
+    public static func exercises(in block: Block) -> [Exercise] {
+        all.filter { $0.block == block && !extraIDs.contains($0.id) }
+    }
+
+    /// The pain-led additions only come up for a sore area, never in the everyday rotation.
+    static let extraIDs: Set<String> = ["bandInversion", "calfHold", "wallSit", "clamshell"]
+
+    /// Easy exercises for a sore area, in the research's priority order (06 §7a).
+    public static func easy(for area: BodyArea) -> [Exercise] {
+        let order: [BodyArea: [String]] = [
+            .shins: ["tibRaise", "bandInversion", "shortFoot", "balance"],
+            .calves: ["calfHold", "bentKneeCalf", "straightKneeCalf"],
+            .feet: ["shortFoot", "toeYoga", "bandInversion", "balance"],
+            .knees: ["wallSit", "squat", "sideLegRaise", "bridge"],
+            .hips: ["sideLegRaise", "clamshell", "bridge", "sidePlank"],
+        ]
+        return (order[area] ?? []).compactMap { id in all.first { $0.id == id } }
+    }
 }
