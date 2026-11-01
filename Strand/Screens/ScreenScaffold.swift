@@ -37,6 +37,9 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// at-root re-tap of the active tab (#198 follow-up). Default 0 never changes, so macOS and every
     /// non-tab screen keep their exact prior scroll behaviour.
     @Environment(\.scrollToTopSignal) private var scrollToTopSignal
+    #if os(iOS)
+    @Environment(\.screenScrollOffset) private var screenScrollOffset
+    #endif
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -68,6 +71,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         // permits horizontal bounce when content genuinely overflows the width (it does not here, the column
         // is width-capped), so the spurious horizontal rubber-band that caused the sideways drift is gone.
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        // NOOP Trainer: a screen that asks for it (C25K Coach) hears the scroll offset; nil elsewhere.
+        .modifier(ReportsScreenScrollOffset(report: screenScrollOffset))
         #endif
         // The flat canvas, plus an optional full-bleed TOP backdrop (Today's day-cycle scene) drawn behind
         // the scroll content — edge-to-edge under the status bar. The scene is CONFINED to the header+hero
