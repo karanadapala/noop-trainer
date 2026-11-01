@@ -738,3 +738,22 @@ final class BriskWalkTests: XCTestCase {
         XCTAssertEqual(CueTimeline.cues(for: s).filter { $0.text.contains("shin") }.count, 0)
     }
 }
+
+final class StepGuardTests: XCTestCase {
+    func testCuesOncePerRunBelowTheTarget() {
+        XCTAssertEqual(StepGuard.baseline([150, 160, 156]), 156)
+        XCTAssertEqual(StepGuard.target(baseline: 156), 164)
+        func cue(_ kind: Segment.Kind = .run, into: Double = 45, spm: Double? = 158, base: Double? = 156,
+                 cued: Bool = false) -> Bool {
+            StepGuard.shouldCue(segment: kind, secondsIntoSegment: into, stepsPerMinute: spm, baseline: base,
+                                cuedThisRun: cued)
+        }
+        XCTAssertTrue(cue())
+        XCTAssertFalse(cue(spm: 164))        // at the target
+        XCTAssertFalse(cue(cued: true))
+        XCTAssertFalse(cue(into: 20))        // still settling
+        XCTAssertFalse(cue(.walk))
+        XCTAssertFalse(cue(base: nil))       // no baseline yet: the warm-up reminder only
+        XCTAssertFalse(cue(spm: nil))
+    }
+}

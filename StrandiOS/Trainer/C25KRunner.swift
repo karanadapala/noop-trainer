@@ -52,6 +52,11 @@ final class C25KRunner: ObservableObject {
     /// Median run speed of earlier coached runs; nil until there are some.
     private var easySpeed: Double?
     private var speedWarnedSegment: Int?
+    private let cadence = CadenceMeter()
+    /// Steps per minute sampled during runs, for this session's figure.
+    private var cadenceSamples: [Double] = []
+    private var stepBaseline: Double?
+    private var stepCuedSegment: Int?
     private var timer: Timer?
     private var subscriptions = Set<AnyCancellable>()
 
@@ -277,6 +282,10 @@ final class C25KRunner: ObservableObject {
         distanceSamples = []
         easySpeed = s.kind == .plan ? earlierEasySpeed() : nil
         speedWarnedSegment = nil
+        cadenceSamples = []
+        stepCuedSegment = nil
+        stepBaseline = s.kind == .plan
+            ? StepGuard.baseline((Array(log.values) + Array(archive.values)).compactMap(\.cadenceSpm)) : nil
         nextCue = 0
         startedAt = Date()
         pausedAt = nil
@@ -290,6 +299,7 @@ final class C25KRunner: ObservableObject {
         model.startWorkout(sport: s.kind == .briskWalk ? "Walking" : "Running")
         model.startRealtimeHR()
         voice.prepare()
+        cadence.start()
 
         let t = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
@@ -354,7 +364,9 @@ final class C25KRunner: ObservableObject {
         segmentIndex = session.segmentIndex(at: t)
 
         speakDueCues(at: t)
+        sampleCadence(at: t, session: session)
         coachSpeed(at: t, session: session)
+        coachSteps(at: t, session: session)
         coachHeartRate(at: t, session: session)
 
         if t >= Double(session.totalSeconds) { finish(session) }
@@ -408,6 +420,28 @@ final class C25KRunner: ObservableObject {
         say(SpeedGuard.warning, interrupt: false)
     }
 
+    /// One sample per tick during runs, once settled into them.
+    private func sampleCadence(at t: TimeInterval, session: GuidedSession) {
+        guard let i = segmentIndex, session.segments[i].kind.isRun,
+              t - Double(session.segmentStarts[i]) >= StepGuard.settle,
+              let spm = cadence.stepsPerMinute, spm > 100 else { return }
+        cadenceSamples.append(spm)
+    }
+
+    /// "Quicker, shorter steps" once per run when below the target (D120), and not right after another
+    /// correction.
+    private func coachSteps(at t: TimeInterval, session: GuidedSession) {
+        guard let i = segmentIndex, quietWindow(at: t) else { return }
+        if let last = lastCorrectionAt, t - last < 20 { return }
+        let into = t - Double(session.segmentStarts[i])
+        guard StepGuard.shouldCue(segment: session.segments[i].kind, secondsIntoSegment: into,
+                                  stepsPerMinute: cadence.stepsPerMinute, baseline: stepBaseline,
+                                  cuedThisRun: stepCuedSegment == i) else { return }
+        stepCuedSegment = i
+        lastCorrectionAt = t
+        say(StepGuard.cue, interrupt: false)
+    }
+
     /// Not just after a segment change, and not into the countdown before the next one.
     private func quietWindow(at t: TimeInterval) -> Bool {
         if t - lastTransitionAt < 6 { return false }
@@ -441,7 +475,8 @@ final class C25KRunner: ObservableObject {
                                            durationS: session.totalSeconds,
                                            avgHr: w.avgHr > 0 ? w.avgHr : nil,
                                            distanceM: model.map { $0.gpsRecorder.distanceM },
-                                           source: .coach))
+                                           source: .coach,
+                                           cadenceSpm: StepGuard.summary(cadenceSamples)))
         } else if session.kind == .plan {
             setCompleted(session, true)
         }
@@ -450,6 +485,7 @@ final class C25KRunner: ObservableObject {
     }
 
     private func tearDown() {
+        cadence.stop()
         timer?.invalidate()
         timer = nil
         subscriptions.removeAll()

@@ -21,6 +21,8 @@ struct C25KLogEntry: Codable, Equatable {
     let avgHr: Int?
     let distanceM: Double?
     let source: Source
+    /// Median steps per minute during the runs (D120); coached runs from 2026-10-31 on.
+    var cadenceSpm: Double? = nil
 
     var date: Date { Date(timeIntervalSince1970: TimeInterval(startTs)) }
 }
