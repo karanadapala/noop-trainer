@@ -117,10 +117,45 @@ struct RoutinePlayerView: View {
     }
 
     @ObservedObject private var backCare = BackCareStore.shared
+    @ObservedObject private var mobility = MobilityStore.shared
 
     @ViewBuilder
     private var finished: some View {
-        if runner.routine?.variant.isBackCare == true { backCareFinished } else { restDayFinished }
+        if runner.routine?.variant == .mobility { mobilityFinished }
+        else if runner.routine?.variant.isBackCare == true { backCareFinished } else { restDayFinished }
+    }
+
+    /// Mobility asks the nerve question at the end (research 07 §6): a yes starts the back flare path.
+    private var mobilityFinished: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Spacer()
+            overline("Mobility done", StrandPalette.accent)
+            Text("Session complete")
+                .font(StrandFont.rounded(34))
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text("Anything below the knee or in the big toe, during or now?")
+                .font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                NoopButton("No", kind: mobility.lastNerveSign == false ? .primary : .secondary, fullWidth: true) {
+                    mobility.setNerveSign(false)
+                }
+                NoopButton("Yes", kind: mobility.lastNerveSign == true ? .primary : .secondary, fullWidth: true) {
+                    mobility.setNerveSign(true)
+                }
+            }
+            if mobility.lastNerveSign == true {
+                Text("Logged as a back flare: runs, lifting, Core B and bending drills rest for 48 hours. The Regimen shows what to watch for.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.statusWarning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            NoopButton("Done", kind: .primary, fullWidth: true) { runner.dismissFinished() }
+                .disabled(mobility.lastNerveSign == nil)
+        }
+        .padding(20)
     }
 
     /// Back care asks how it felt: a week of "easy" offers the next level (D99).

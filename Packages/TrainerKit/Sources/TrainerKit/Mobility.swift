@@ -51,7 +51,7 @@ public enum Mobility {
                                Dose(sets: 2, .hold(30), rest: 10, variant: "Knees wide"))
     static let hamstring = ex("hamstring", "Hamstring stretch with a towel",
                               "On your back, towel round the foot, knee slightly bent, foot relaxed. Pull only at the back of the thigh.",
-                              Dose(sets: 2, .hold(30), perSide: true, rest: 10, variant: "Hold"),
+                              Dose(sets: 2, .hold(30), perSide: true, rest: 10, variant: "Knee slightly bent, foot relaxed"),
                               phase2: Dose(sets: 2, .heldReps(3, holdSeconds: 25), perSide: true,
                                            variant: "Contract–relax: press the heel into the towel, then ease further"))
     static let hipFlexor = ex("hipFlexor", "Hip-flexor stretch",

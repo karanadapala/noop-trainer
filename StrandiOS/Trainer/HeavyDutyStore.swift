@@ -69,6 +69,13 @@ final class HeavyDutyStore: ObservableObject {
                              liftHolds: runner.painState.holds.filter { $0.area == .back }.map(\.reason))
     }
 
+    /// Today's workout for the plans that fit around lifting (Back care, Mobility): done today, or due.
+    func liftToday(runner: C25KRunner, now: Date = Date()) -> (workout: HeavyDuty.Workout?, done: Bool) {
+        guard enabled else { return (nil, false) }
+        if let w = last.first(where: { Calendar.current.isDate($0.value, inSameDayAs: now) })?.key { return (w, true) }
+        return (plan(runner: runner, now: now).due(now: now), false)
+    }
+
     func place(_ regimen: RegimenStore) -> Place? { regimen.place(id: placeID) ?? regimen.places.first }
 
     /// Today's weight for one exercise at a place, in the place's unit.
@@ -184,6 +191,7 @@ enum ActivePlans {
         var plans: [any TrainingPlan] = [runner.plan]
         if heavyDuty.enabled { plans.append(heavyDuty.plan(runner: runner)) }
         if backCare.enabled { plans.append(backCare.plan(heavyDuty: heavyDuty, runner: runner)) }
+        if MobilityStore.shared.enabled { plans.append(MobilityStore.shared.plan(heavyDuty: heavyDuty, runner: runner)) }
         return plans
     }
 }

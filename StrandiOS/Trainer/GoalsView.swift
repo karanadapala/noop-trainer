@@ -9,6 +9,7 @@ struct GoalsView: View {
     @ObservedObject private var runner = C25KRunner.shared
     @ObservedObject private var heavyDuty = HeavyDutyStore.shared
     @ObservedObject private var backCare = BackCareStore.shared
+    @ObservedObject private var mobility = MobilityStore.shared
 
     private var plans: [any TrainingPlan] { ActivePlans.all() }
 

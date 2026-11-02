@@ -223,8 +223,10 @@ final class RoutineRunner: ObservableObject {
         let ids = routine.items.map(\.exercise.id)
         let skipped = ids.filter { skippedIDs.contains($0) || (early && !reached.contains($0)) }
         let done = ids.filter { !skipped.contains($0) && reached.contains($0) }
-        // Back care logs its own sessions; they aren't rest-day routines.
-        if routine.variant.isBackCare {
+        // Back care and Mobility log their own sessions; they aren't rest-day routines.
+        if routine.variant == .mobility {
+            if !done.isEmpty { MobilityStore.shared.finished() }
+        } else if routine.variant.isBackCare {
             if !done.isEmpty { BackCareStore.shared.finished() }
         // The after-run base block isn't a rest-day routine: it doesn't move stages or fill rest dots.
         } else if !done.isEmpty && routine.variant != .base {

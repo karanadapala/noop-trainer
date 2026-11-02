@@ -4,7 +4,7 @@ import TrainerKit
 
 /// Screens the Regimen links to, pushed as values so the tab's re-tap pops them (#198).
 enum RegimenRoute: Hashable {
-    case c25k, c25kHistory, heavyDuty, backCare, goals, places, health
+    case c25k, c25kHistory, heavyDuty, backCare, mobility, goals, places, health
 }
 
 /// The Regimen tab (D139): every active plan for today, under the goals they serve (D124). The goal
@@ -17,6 +17,7 @@ struct RegimenView: View {
     @ObservedObject private var store = RegimenStore.shared
     @ObservedObject private var heavyDuty = HeavyDutyStore.shared
     @ObservedObject private var backCare = BackCareStore.shared
+    @ObservedObject private var mobility = MobilityStore.shared
 
     /// The active plans, the main goal's plan first (D86: it wins a clash).
     private var plans: [any TrainingPlan] { ActivePlans.all() }
@@ -41,6 +42,7 @@ struct RegimenView: View {
                 case .c25k: C25KView()
                 case .heavyDuty: HeavyDutyView()
                 case .backCare: BackCareView()
+                case .mobility: MobilityView()
                 case .c25kHistory: C25KHistoryView()
                 case .goals: GoalsView()
                 case .places: PlacesView()
@@ -122,6 +124,7 @@ struct RegimenView: View {
         switch planID {
         case HeavyDuty.planID: return .heavyDuty
         case BackCare.planID: return .backCare
+        case Mobility.planID: return .mobility
         default: return .c25k
         }
     }
@@ -139,24 +142,26 @@ struct RegimenView: View {
                             PlanRow(title: plan.title, goals: plan.goals, today: today)
                         }
                         .buttonStyle(.plain)
-                        if i < plans.count - 1 || !heavyDuty.enabled || !backCare.enabled {
+                        if i < plans.count - 1 || !addable.isEmpty {
                             Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
                         }
                     }
-                    if !heavyDuty.enabled {
-                        SetupRow(title: "Add Heavy Duty", detail: "Strength: Upper and Legs, about once a week each",
-                                 icon: "plus.circle", route: .heavyDuty)
-                    }
-                    if !heavyDuty.enabled && !backCare.enabled {
-                        Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
-                    }
-                    if !backCare.enabled {
-                        SetupRow(title: "Add Back care", detail: "Mobility: the Big 3 most days, core work after lifting",
-                                 icon: "plus.circle", route: .backCare)
+                    ForEach(Array(addable.enumerated()), id: \.offset) { i, row in
+                        if i > 0 { Divider().overlay(StrandPalette.hairline).padding(.leading, 56) }
+                        SetupRow(title: row.title, detail: row.detail, icon: "plus.circle", route: row.route)
                     }
                 }
             }
         }
+    }
+
+    /// Plans not added yet, each with its own "Add" row.
+    private var addable: [(title: LocalizedStringKey, detail: String, route: RegimenRoute)] {
+        var rows: [(title: LocalizedStringKey, detail: String, route: RegimenRoute)] = []
+        if !heavyDuty.enabled { rows.append(("Add Heavy Duty", "Strength: Upper and Legs, about once a week each", .heavyDuty)) }
+        if !backCare.enabled { rows.append(("Add Back care", "Mobility: the Big 3 most days, core work after lifting", .backCare)) }
+        if !mobility.enabled { rows.append(("Add Mobility", "Mobility: range for the hips, hamstrings and back over 12 weeks", .mobility)) }
+        return rows
     }
 
     // MARK: Setup
@@ -354,6 +359,7 @@ struct RegimenTodayCard: View {
     @ObservedObject private var store = RegimenStore.shared
     @ObservedObject private var heavyDuty = HeavyDutyStore.shared
     @ObservedObject private var backCare = BackCareStore.shared
+    @ObservedObject private var mobility = MobilityStore.shared
 
     private var plans: [any TrainingPlan] { ActivePlans.all() }
 

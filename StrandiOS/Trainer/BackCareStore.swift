@@ -16,7 +16,7 @@ final class BackCareStore: ObservableObject {
         didSet { UserDefaults.standard.set(lastLevelChange, forKey: Self.levelChangeKey) }
     }
     @Published private(set) var log: [BackCareLog] { didSet { Self.save(log, Self.logKey) } }
-    /// When the strap saw you wake today, from last night's sleep (D101).
+    /// When the strap saw you wake today, from last night's sleep (D101). Mobility reads it too.
     @Published private(set) var wake: Date?
 
     /// The session handed to the player, logged when it ends.
@@ -40,16 +40,7 @@ final class BackCareStore: ObservableObject {
     func level(_ id: String) -> Stage { levels[id] ?? .learn }
 
     func plan(heavyDuty: HeavyDutyStore = .shared, runner: C25KRunner = .shared, now: Date = Date()) -> BackCarePlan {
-        var lift: HeavyDuty.Workout?
-        var done = false
-        if heavyDuty.enabled {
-            if let w = heavyDuty.last.first(where: { Calendar.current.isDate($0.value, inSameDayAs: now) })?.key {
-                lift = w
-                done = true
-            } else {
-                lift = heavyDuty.plan(runner: runner, now: now).due(now: now)
-            }
-        }
+        let (lift, done) = heavyDuty.liftToday(runner: runner, now: now)
         return BackCarePlan(options: options, log: log, levels: levels, lastLevelChange: lastLevelChange,
                             liftToday: lift, liftDone: done, wake: wake,
                             flare: runner.painState.holds.contains { $0.area == .back })
