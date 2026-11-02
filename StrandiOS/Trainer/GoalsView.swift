@@ -7,8 +7,9 @@ import TrainerKit
 struct GoalsView: View {
     @ObservedObject private var store = RegimenStore.shared
     @ObservedObject private var runner = C25KRunner.shared
+    @ObservedObject private var heavyDuty = HeavyDutyStore.shared
 
-    private var plans: [any TrainingPlan] { [runner.plan] }
+    private var plans: [any TrainingPlan] { ActivePlans.all() }
 
     var body: some View {
         ScreenScaffold(title: "Goals", subtitle: "Pick what you're training for. The Regimen shows only these.") {

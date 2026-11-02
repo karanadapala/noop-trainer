@@ -54,13 +54,13 @@ public enum HeavyDuty {
     public static let exercises: [Exercise] = [
         Exercise(id: "crossover", name: "Cable crossover", workout: .upper, muscles: ["chest", "frontDelts"],
                  kit: .cableCrossover, straightInto: "inclinePress",
-                 cue: "Elbows slightly bent, squeeze the hands together. Straight into the incline press."),
+                 cue: "Elbows slightly bent, squeeze the hands together."),
         Exercise(id: "inclinePress", name: "Machine incline press", workout: .upper,
                  muscles: ["chest", "frontDelts", "triceps"], kit: .pressMachine,
                  cue: "Breathe out on each push."),
         Exercise(id: "straightArmPulldown", name: "Straight-arm pulldown", workout: .upper, muscles: ["lats"],
                  kit: .cableColumn, straightInto: "closeGripPulldown", stopTap: .formBroke,
-                 cue: "Brace first: ribs down, hips still. Straight into the close-grip pulldown."),
+                 cue: "Brace first: ribs down, hips still."),
         Exercise(id: "closeGripPulldown", name: "Close-grip palms-up pulldown", workout: .upper,
                  muscles: ["lats", "biceps"], kit: .pulldownRow, cue: "Pull the elbows down to your sides."),
         Exercise(id: "seatedRow", name: "Seated row", workout: .upper, muscles: ["upperBack", "lats", "biceps"],
@@ -74,7 +74,7 @@ public enum HeavyDuty {
                  kit: .cableColumn, cue: "Elbows pinned to your sides."),
         Exercise(id: "legExtension", name: "Leg extension", workout: .legs, muscles: ["quads"],
                  kit: .legExtensionCurl, straightInto: "legPress", stopTap: .couldntLift,
-                 cue: "Hold the top for a second. Straight into the leg press."),
+                 cue: "Hold the top for a second."),
         Exercise(id: "legPress", name: "Leg press", workout: .legs, muscles: ["quads", "glutes", "hamstrings"],
                  kit: .legPress, stopTap: .formBroke,
                  cue: "Brace, then push. Lower back stays on the pad; stop before the hips roll up. Breathe out on each push."),
@@ -385,6 +385,11 @@ public struct HeavyDutyPlan: TrainingPlan {
     }
 
     private func restReason(now: Date, calendar: Calendar) -> String {
+        let today = calendar.startOfDay(for: now)
+        let runIn = nextRun.map { calendar.dateComponents([.day], from: today, to: calendar.startOfDay(for: $0)).day ?? 0 }
+        if ranToday || runIn.map({ $0 <= 0 }) == true {
+            return "A run day: lifting goes on a day without a run."
+        }
         if !legHolds.isEmpty, (last[.legs].map { (calendar.dateComponents([.day], from: $0, to: now).day ?? 0) >= options.daysBetween } ?? true) {
             return "Legs wait: \(legHolds.joined(separator: ". "))."
         }
