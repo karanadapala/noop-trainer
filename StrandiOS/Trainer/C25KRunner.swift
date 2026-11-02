@@ -114,6 +114,11 @@ final class C25KRunner: ObservableObject {
         gates.last { $0.step == .basics && Calendar.current.isDateInToday($0.date) }
     }
 
+    /// Today's brisk walk towards running again, if it's done (passed or not).
+    var todaysWalk: GateEntry? {
+        gates.last { $0.step == .walk && Calendar.current.isDateInToday($0.date) }
+    }
+
     /// Takes back today's basics answer (a mis-tap), so the card asks again.
     func undoTodaysBasics() {
         gates.removeAll { $0.step == .basics && Calendar.current.isDateInToday($0.date) }

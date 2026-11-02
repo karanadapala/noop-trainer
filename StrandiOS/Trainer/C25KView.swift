@@ -22,6 +22,8 @@ struct C25KView: View {
     @State private var confirmRunAnyway = false
     @State private var askedAfterRun = false
     @State private var routineChoice: RoutineVariant?
+    /// The routine was asked for before today's getting-back-to-running checks.
+    @State private var routineFirst = false
     @State private var confirmRestart: Int?
     @State private var takingCalfTest = false
     @State private var loggingStop: GuidedSession?
@@ -279,7 +281,7 @@ struct C25KView: View {
             stages: RestDayProgress.stages(log: routineRunner.sessions, pain: runner.pain, programWeek: week,
                                            repeatingWeek: runner.attempt(week: week) > 1),
             lastStrengthBlock: routineRunner.lastStrengthBlock, rotation: routineRunner.sessions.count,
-            focus: focusAreas)
+            focus: focusAreas, walkedToday: runner.todaysWalk != nil)
     }
 
     /// A run was stopped for pain today: the evening is foot core only (research 06 §7c).
@@ -294,6 +296,17 @@ struct C25KView: View {
             Label("Done today: \(done.variant.label) routine", systemImage: "checkmark.circle.fill")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.accent)
+        } else if routineWaitsForWalk {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("After the brisk walk")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("Do today's getting-back-to-running steps above first. The walk counts as the routine's warm-up walk, so the routine skips its own.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                textLink("Show the routine now", systemImage: "list.bullet") { routineFirst = true }
+            }
         } else if stoppedToday {
             let routine = RoutineBuilder.stopDay(pain: painState)
             VStack(alignment: .leading, spacing: 12) {
@@ -639,14 +652,11 @@ struct C25KView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 case .doneForToday(let days):
                     comebackSteps(next: nil, days: days)
-                    Text("Done for today. The next check is tomorrow morning.")
+                    Text("Done for today. The next check is tomorrow morning. The rest-day routine is next.")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                 case .checking(let next, let days, let failed):
                     comebackSteps(next: next, days: days)
-                    if runner.todaysBasics != nil {
-                        textLink("Change today's answer", systemImage: "arrow.uturn.backward") { runner.undoTodaysBasics() }
-                    }
                     if failed {
                         Text("Not yet today. Rest it, keep the easy exercises at 3 out of 10 or less, and try again tomorrow morning.")
                             .font(StrandFont.subhead)
@@ -655,57 +665,118 @@ struct C25KView: View {
                     } else {
                         comebackAction(next)
                     }
+                    if runner.todaysBasics != nil {
+                        textLink("Change this morning's answer", systemImage: "arrow.uturn.backward") { runner.undoTodaysBasics() }
+                    }
                 }
             }
         }
     }
 
+    /// The three steps as a strip: done, today's step, still to come. Only today's step has buttons, in
+    /// its own panel below, so an answer can't be read as covering the whole list.
     private func comebackSteps(next: GateEntry.Step?, days: Int) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Day \(min(days + (next == nil ? 0 : 1), ReturnToRun.daysNeeded)) of \(ReturnToRun.daysNeeded), then a hop test")
                 .font(StrandFont.headline)
                 .foregroundStyle(StrandPalette.textPrimary)
-            ForEach(GateEntry.Step.allCases, id: \.self) { step in
-                let done = next.map { Self.stepOrder(step) < Self.stepOrder($0) } ?? (step != .hopAndHeel)
-                Label(Self.stepText(step), systemImage: done ? "checkmark.circle.fill" : step == next ? "circle.dotted" : "circle")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(done ? StrandPalette.textSecondary : StrandPalette.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { stepChips(next: next) }
+                VStack(alignment: .leading, spacing: 6) { stepChips(next: next) }
             }
         }
     }
 
+    @ViewBuilder private func stepChips(next: GateEntry.Step?) -> some View {
+        ForEach(GateEntry.Step.allCases, id: \.self) { step in
+            let done = next.map { Self.stepOrder(step) < Self.stepOrder($0) } ?? (step != .hopAndHeel)
+            let current = step == next
+            Label(Self.stepName(step), systemImage: done ? "checkmark.circle.fill" : current ? "circle.dotted" : "circle")
+                .font(StrandFont.caption.weight(current ? .semibold : .regular))
+                .foregroundStyle(done ? StrandPalette.accent : current ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                .fixedSize()
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(done || current ? Color.clear : StrandPalette.surfaceInset))
+                .overlay(Capsule().stroke(current ? StrandPalette.statusWarning : done ? StrandPalette.hairlineStrong : .clear,
+                                          lineWidth: current ? 1.5 : 1))
+                .accessibilityLabel("\(Self.stepName(step)): \(done ? "done" : current ? "today's step" : "still to come")")
+        }
+    }
+
+    /// Today's step, on its own: what to check or do, then its answer.
     @ViewBuilder private func comebackAction(_ step: GateEntry.Step) -> some View {
-        switch step {
-        case .basics:
-            HStack(spacing: 12) {
-                NoopButton("Yes, all fine", kind: .primary, fullWidth: true) { runner.recordGate(.basics, passed: true) }
-                NoopButton("Not yet", kind: .secondary, fullWidth: true) { runner.recordGate(.basics, passed: false) }
-            }
-        case .walk:
-            NoopButton("Start a 20-minute brisk walk", systemImage: "figure.walk", kind: .primary, fullWidth: true) {
-                if !runner.start(C25K.briskWalk(minutes: 20), model: model) { blockedByWorkout = true }
-            }
-        case .hopAndHeel:
-            Text("10 gentle hops on each leg (2 out of 10 or less), then single-leg heel raises: 15 or more each side, no shin pain.")
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 12) {
-                NoopButton("Passed", kind: .primary, fullWidth: true) { runner.recordGate(.hopAndHeel, passed: true) }
-                NoopButton("Not yet", kind: .secondary, fullWidth: true) { runner.recordGate(.hopAndHeel, passed: false) }
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Step \(Self.stepOrder(step) + 1) of \(GateEntry.Step.allCases.count) · \(Self.stepName(step))")
+                .font(StrandFont.caption.weight(.semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+            switch step {
+            case .basics:
+                Text("Are all three true this morning?")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(["No sore spot when you press along the bone",
+                             "No ache at rest or overnight",
+                             "Walking around doesn't hurt"], id: \.self) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Circle().fill(StrandPalette.textTertiary).frame(width: 5, height: 5)
+                            Text(line)
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                HStack(spacing: 12) {
+                    NoopButton("Yes, all three", kind: .primary, fullWidth: true) { runner.recordGate(.basics, passed: true) }
+                    NoopButton("Not yet", kind: .secondary, fullWidth: true) { runner.recordGate(.basics, passed: false) }
+                }
+            case .walk:
+                Text("A 20-minute brisk walk")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("Brisk but easy to talk. At the end the coach asks if it was pain-free. It also stands in for the walk in today's rest-day routine.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                NoopButton("Start the walk", systemImage: "figure.walk", kind: .primary, fullWidth: true) {
+                    if !runner.start(C25K.briskWalk(minutes: 20), model: model) { blockedByWorkout = true }
+                }
+            case .hopAndHeel:
+                Text("The hop and heel-raise test")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("10 gentle hops on each leg (2 out of 10 or less), then single-leg heel raises: 15 or more each side, no shin pain.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
+                    NoopButton("Passed", kind: .primary, fullWidth: true) { runner.recordGate(.hopAndHeel, passed: true) }
+                    NoopButton("Not yet", kind: .secondary, fullWidth: true) { runner.recordGate(.hopAndHeel, passed: false) }
+                }
             }
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(StrandPalette.surfaceInset))
     }
 
     static func stepOrder(_ step: GateEntry.Step) -> Int { GateEntry.Step.allCases.firstIndex(of: step) ?? 0 }
 
-    static func stepText(_ step: GateEntry.Step) -> String {
+    static func stepName(_ step: GateEntry.Step) -> String {
         switch step {
-        case .basics: return "No sore spot on the bone, no ache at rest or overnight, walking around is pain-free"
-        case .walk: return "A 20-minute brisk walk with no pain"
-        case .hopAndHeel: return "After 2 days of both: the hop and heel-raise test"
+        case .basics: return "Morning check"
+        case .walk: return "Brisk walk"
+        case .hopAndHeel: return "Hop test"
         }
+    }
+
+    /// Today's checks come before the routine (the walk is its warm-up), unless they're already done or
+    /// failed, or you'd rather do the routine first.
+    private var routineWaitsForWalk: Bool {
+        guard !routineFirst, case .checking(let next, _, let failed) = comeback.status, !failed else { return false }
+        return next == .basics || next == .walk
     }
 
     // MARK: Halfway cue (D83)

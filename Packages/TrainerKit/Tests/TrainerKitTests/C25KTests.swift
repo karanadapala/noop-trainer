@@ -432,6 +432,17 @@ final class RestRoutineTests: XCTestCase {
         XCTAssertTrue(focus(22, runs: Array(runs.prefix(3))).contains(.shins))
     }
 
+    func testAWalkAlreadyDoneTodayReplacesTheRoutinesWalk() {
+        var i = input(legs: .limiting, week: 4)
+        let usual = RoutineBuilder.routine(for: i)
+        XCTAssertGreaterThan(usual.walkMinutes, 0)
+        i.walkedToday = true
+        let after = RoutineBuilder.routine(for: i)
+        XCTAssertEqual(after.walkMinutes, 0)
+        XCTAssertEqual(after.items.map(\.exercise.id), usual.items.map(\.exercise.id))
+        XCTAssertFalse(after.blocks.contains(.walk))
+    }
+
     func testLengthsMatchTheDesign() {
         let build = RoutineBuilder.routine(for: input(week: 4, stages: [.footBalance: .build, .lowerLeg: .build, .hipThigh: .build]))
         let steady = RoutineBuilder.routine(for: input(legs: .usual, week: 4))

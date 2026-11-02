@@ -112,11 +112,14 @@ public enum RoutineBuilder {
         public var rotation: Int
         /// Areas with a focused block from `FocusAreas` (D118); sore areas join them.
         public var focus: [BodyArea]
+        /// A walk is already done today (the getting-back-to-running walk), so the routine skips its own.
+        public var walkedToday: Bool
 
         public init(charge: Double?, legs: LegFeel, pain: PainState, restDayInARow: Int, programWeek: Int,
                     stages: [Block: Stage] = [:], lastStrengthBlock: Block? = nil, rotation: Int = 0,
-                    focus: [BodyArea] = []) {
+                    focus: [BodyArea] = [], walkedToday: Bool = false) {
             self.focus = focus
+            self.walkedToday = walkedToday
             self.charge = charge
             self.legs = legs
             self.pain = pain
@@ -266,6 +269,7 @@ public enum RoutineBuilder {
         let focusedIDs = Set(focused.map(\.exercise.id))
         list = fit(list.filter { !focusedIDs.contains($0.exercise.id) }, within: exerciseBudget(variant))
         let kept = Set(list.map(\.exercise.block))
+        if input.walkedToday { walk = 0 }
         return RestRoutine(variant: variant, walkMinutes: walk, items: focused + list,
                            skippedAreas: input.pain.redFlagAreas, focusAreas: areas,
                            stages: used.filter { kept.contains($0.key) })

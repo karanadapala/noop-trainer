@@ -66,6 +66,7 @@ struct StrandiOSApp: App {
         // Same reason this lives here rather than StrandApp.swift: that file is the macOS @main and is
         // excluded from the iOS target. See DemoSyncHarness.swift.
         DemoSyncHarness.applyLaunchArgsIfNeeded()
+        RegimenStore.applyLaunchArgsIfNeeded()
         #endif
         // Debug-only canary: trips if the App Group entitlement is missing on this target before any
         // silent no-op (PendingIntents, WidgetSnapshot.publish, Live Activity) can mask the issue as
@@ -587,6 +588,7 @@ enum DemoScreens {
         case "places":   return AnyView(PlacesView())
         case "healthprofile": return AnyView(HealthProfileView())
         case "c25khistory": return AnyView(C25KHistoryView())
+        case "c25k":     return AnyView(C25KView())
         case "sleep":    return AnyView(SleepView())
         case "live":     return AnyView(LiveView())
         case "stress":   return AnyView(StressView())

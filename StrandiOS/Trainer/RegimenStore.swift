@@ -47,6 +47,18 @@ final class RegimenStore: ObservableObject {
 
     func deleteInjury(_ id: UUID) { health.injuries.removeAll { $0.id == id } }
 
+    #if DEBUG
+    /// DEBUG: `--add-injury <base64 JSON Injury>` saves one entry through the store, as the editor would,
+    /// so an entry can be filled in from the Mac. Same id again replaces it. No-op without the argument.
+    static func applyLaunchArgsIfNeeded() {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "--add-injury"), i + 1 < args.count,
+              let data = Data(base64Encoded: args[i + 1]),
+              let injury = try? JSONDecoder().decode(Injury.self, from: data) else { return }
+        shared.save(injury)
+    }
+    #endif
+
     private static func decode<T: Decodable>(_ type: T.Type, _ key: String) -> T? {
         UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(type, from: $0) }
     }
