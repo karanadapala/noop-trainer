@@ -72,6 +72,14 @@ struct RegimenView: View {
                         Label("Go to the session", systemImage: "play.fill")
                     }
                     .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+                    if plan.id == HeavyDuty.planID {
+                        Button { heavyDuty.skipToday() } label: {
+                            Label("Not lifting today", systemImage: "moon.zzz")
+                                .font(StrandFont.subhead.weight(.semibold))
+                                .foregroundStyle(StrandPalette.accent)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
         } else if let held = day.plans.first(where: { $0.status == .hold }),

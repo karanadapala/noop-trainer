@@ -336,9 +336,12 @@ public struct HeavyDutyPlan: TrainingPlan {
     public let c25kFinished: Bool
     /// Pain holds that also stop leg work today (D86 rule 6).
     public let legHolds: [String]
+    /// "Not lifting today": nothing is offered for the rest of that day.
+    public let skipped: Date?
 
     public init(options: HeavyDutyOptions, last: [HeavyDuty.Workout: Date], firstSession: Date?, nextRun: Date?,
-                ranToday: Bool, c25kFinished: Bool, legHolds: [String] = []) {
+                ranToday: Bool, c25kFinished: Bool, legHolds: [String] = [], skipped: Date? = nil) {
+        self.skipped = skipped
         self.options = options
         self.last = last
         self.firstSession = firstSession
@@ -350,6 +353,7 @@ public struct HeavyDutyPlan: TrainingPlan {
 
     /// The workout that fits today, if any.
     public func due(now: Date, calendar: Calendar = .current) -> HeavyDuty.Workout? {
+        if let skipped, calendar.isDate(skipped, inSameDayAs: now) { return nil }
         let today = calendar.startOfDay(for: now)
         func days(since date: Date?) -> Int? {
             date.map { calendar.dateComponents([.day], from: calendar.startOfDay(for: $0), to: today).day ?? 0 }
@@ -372,6 +376,10 @@ public struct HeavyDutyPlan: TrainingPlan {
             let w = last.first { calendar.isDate($0.value, inSameDayAs: now) }?.key ?? .upper
             return PlanToday(planID: id, status: .done, headline: "Done for today",
                              detail: "\(w.title) done. Recovery is where the strength comes from.", works: w.works)
+        }
+        if let skipped, calendar.isDate(skipped, inSameDayAs: now) {
+            return PlanToday(planID: id, status: .rest, headline: "Not today",
+                             detail: "Skipped for today. It comes up again on the next day it fits.")
         }
         guard let workout = due(now: now, calendar: calendar) else {
             return PlanToday(planID: id, status: .rest, headline: "Rest day", detail: restReason(now: now, calendar: calendar))

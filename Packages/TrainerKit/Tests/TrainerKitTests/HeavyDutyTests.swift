@@ -117,6 +117,14 @@ final class HeavyDutyTests: XCTestCase {
         XCTAssertEqual(plan(last: [.upper: day(3), .legs: day(7)], nextRun: day(11)).due(now: day(10), calendar: cal), .upper)
     }
 
+    func testNotLiftingTodayMovesItOn() {
+        let skipped = HeavyDutyPlan(options: options, last: [:], firstSession: nil, nextRun: day(9), ranToday: false,
+                                    c25kFinished: false, skipped: day(3, hour: 7))
+        XCTAssertNil(skipped.due(now: day(3), calendar: cal))
+        XCTAssertEqual(skipped.today(now: day(3), calendar: cal).status, .rest)
+        XCTAssertEqual(skipped.due(now: day(4), calendar: cal), .legs)
+    }
+
     func testLegsWaitForAPainHoldAndPlanReportsIt() {
         let held = plan(nextRun: day(9), holds: ["Shins: checks first"])
         XCTAssertEqual(held.due(now: day(7), calendar: cal), .upper)

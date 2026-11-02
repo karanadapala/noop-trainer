@@ -20,6 +20,8 @@ final class HeavyDutyStore: ObservableObject {
     /// Regimen is right before the Lift Log has been read.
     @Published private(set) var last: [HeavyDuty.Workout: Date] { didSet { Self.save(last, Self.lastKey) } }
     @Published private(set) var firstSession: Date? { didSet { UserDefaults.standard.set(firstSession, forKey: Self.firstKey) } }
+    /// "Not lifting today", by date.
+    @Published private(set) var skipped: Date? { didSet { UserDefaults.standard.set(skipped, forKey: Self.skippedKey) } }
     /// Each exercise's working sets, oldest first, one per session, weights in kg.
     @Published private(set) var history: [String: [LiftResult]] = [:]
 
@@ -28,6 +30,7 @@ final class HeavyDutyStore: ObservableObject {
     private static let optionsKey = "trainer.heavyduty.options"
     private static let lastKey = "trainer.heavyduty.last"
     private static let firstKey = "trainer.heavyduty.first"
+    private static let skippedKey = "trainer.heavyduty.skipped"
 
     private init() {
         let d = UserDefaults.standard
@@ -36,7 +39,14 @@ final class HeavyDutyStore: ObservableObject {
         options = Self.decode(HeavyDutyOptions.self, Self.optionsKey) ?? HeavyDutyOptions()
         last = Self.decode([HeavyDuty.Workout: Date].self, Self.lastKey) ?? [:]
         firstSession = d.object(forKey: Self.firstKey) as? Date
+        skipped = d.object(forKey: Self.skippedKey) as? Date
     }
+
+    var skippedToday: Bool { skipped.map(Calendar.current.isDateInToday) ?? false }
+
+    func skipToday() { skipped = Date() }
+
+    func undoSkip() { skipped = nil }
 
     // MARK: The plan
 
@@ -55,7 +65,7 @@ final class HeavyDutyStore: ObservableObject {
         }
         return HeavyDutyPlan(options: options, last: last, firstSession: firstSession, nextRun: nextRun,
                              ranToday: ranToday, c25kFinished: finished,
-                             legHolds: runner.painState.holds.map(\.reason))
+                             legHolds: runner.painState.holds.map(\.reason), skipped: skipped)
     }
 
     func place(_ regimen: RegimenStore) -> Place? { regimen.place(id: placeID) ?? regimen.places.first }

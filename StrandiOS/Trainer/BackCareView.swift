@@ -110,8 +110,8 @@ struct BackCareView: View {
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
                 if case .warmUp = next {
-                    textLink("Not lifting today? Do the full Big 3", systemImage: "arrow.triangle.2.circlepath") {
-                        if !store.start(.coreA, routine: BackCare.coreA(levels: store.levels)) { blocked = true }
+                    textLink("Not lifting today? Switch to the full Big 3", systemImage: "arrow.triangle.2.circlepath") {
+                        heavyDuty.skipToday()
                     }
                 }
                 if case .coreB = next, !didBigThreeToday {

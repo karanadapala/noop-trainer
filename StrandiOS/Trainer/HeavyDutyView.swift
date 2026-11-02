@@ -119,11 +119,25 @@ struct HeavyDutyView: View {
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    Button { store.skipToday() } label: {
+                        Label("Not lifting today", systemImage: "moon.zzz")
+                            .font(StrandFont.subhead.weight(.semibold))
+                            .foregroundStyle(StrandPalette.accent)
+                    }
+                    .buttonStyle(.plain)
                 } else {
                     Text(today.detail)
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if store.skippedToday {
+                        Button { store.undoSkip() } label: {
+                            Label("I'm lifting after all", systemImage: "arrow.uturn.backward")
+                                .font(StrandFont.subhead.weight(.semibold))
+                                .foregroundStyle(StrandPalette.accent)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
