@@ -77,6 +77,15 @@ public struct RegimenDay: Equatable, Sendable {
     public var allDone: Bool { !plans.isEmpty && plans.allSatisfy { $0.status != .session && $0.status != .hold } }
 }
 
+public extension Goal {
+    /// The goals the Regimen shows (D191): the ones you picked in setup, plus any goal an active plan
+    /// serves, since a running plan can't sit under a goal that isn't there. Always in `allCases` order.
+    static func shown(chosen: [Goal], plans: [any TrainingPlan]) -> [Goal] {
+        let served = Set(plans.flatMap(\.goals))
+        return allCases.filter { chosen.contains($0) || served.contains($0) }
+    }
+}
+
 /// C25K on the plan layer. A view of the runner's state: the rules themselves (rest rhythm, holds, the
 /// way back) are unchanged and worked out where they always were; this only reports them.
 public struct C25KPlan: TrainingPlan {

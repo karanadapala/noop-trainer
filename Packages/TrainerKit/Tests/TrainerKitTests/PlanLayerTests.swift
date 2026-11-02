@@ -74,6 +74,12 @@ final class PlanLayerTests: XCTestCase {
         XCTAssertTrue(rest.allDone)
     }
 
+    func testShownGoalsArePickedOnesPlusWhatPlansServe() {
+        XCTAssertEqual(Goal.shown(chosen: [], plans: [c25k(done: [])]), [.cardio])
+        XCTAssertEqual(Goal.shown(chosen: [.combat, .strength], plans: [c25k(done: [])]), [.cardio, .strength, .combat])
+        XCTAssertEqual(Goal.shown(chosen: [.mobility], plans: []), [.mobility])
+    }
+
     // MARK: Places and the health profile
 
     func testEquipmentRoundsToWhatTheKitHas() {

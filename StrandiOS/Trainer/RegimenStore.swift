@@ -2,12 +2,16 @@ import Combine
 import Foundation
 import TrainerKit
 
-/// The Regimen's own settings: places and the health profile (D90, D132, D136). Kept under `trainer.*`
+/// The Regimen's own settings: your goals, places and the health profile (D90, D132, D136, D191). Kept under `trainer.*`
 /// keys, so they travel in the backup with the rest of the Trainer's state (`TrainerBackup`).
 @MainActor
 final class RegimenStore: ObservableObject {
     static let shared = RegimenStore()
 
+    /// The goals you picked in setup (D191). Starts empty: the rail shows only what your plans serve.
+    @Published var goals: [Goal] {
+        didSet { Self.save(goals, Self.goalsKey) }
+    }
     @Published var places: [Place] {
         didSet { Self.save(places, Self.placesKey) }
     }
@@ -15,10 +19,12 @@ final class RegimenStore: ObservableObject {
         didSet { Self.save(health, Self.healthKey) }
     }
 
+    private static let goalsKey = "trainer.goals"
     private static let placesKey = "trainer.places"
     private static let healthKey = "trainer.health"
 
     private init() {
+        goals = Self.decode([Goal].self, Self.goalsKey) ?? []
         places = Self.decode([Place].self, Self.placesKey) ?? Place.presets
         health = Self.decode(HealthProfile.self, Self.healthKey) ?? HealthProfile()
     }

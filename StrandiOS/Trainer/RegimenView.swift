@@ -4,7 +4,7 @@ import TrainerKit
 
 /// Screens the Regimen links to, pushed as values so the tab's re-tap pops them (#198).
 enum RegimenRoute: Hashable {
-    case c25k, c25kHistory, places, health
+    case c25k, c25kHistory, goals, places, health
 }
 
 /// The Regimen tab (D139): every active plan for today, under the goals they serve (D124). The goal
@@ -21,7 +21,7 @@ struct RegimenView: View {
     var body: some View {
         ScreenScaffold(title: "Regimen", subtitle: "Every plan, one day at a time.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                GoalRail(plans: plans, day: day)
+                GoalRail(goals: Goal.shown(chosen: store.goals, plans: plans), plans: plans, day: day)
                 nextCard
                 plansSection
                 setupSection
@@ -33,6 +33,7 @@ struct RegimenView: View {
                 switch route {
                 case .c25k: C25KView()
                 case .c25kHistory: C25KHistoryView()
+                case .goals: GoalsView()
                 case .places: PlacesView()
                 case .health: HealthProfileView()
                 }
@@ -132,6 +133,8 @@ struct RegimenView: View {
             Text("Setup").strandOverline()
             NoopCard(padding: 0) {
                 VStack(spacing: 0) {
+                    SetupRow(title: "Goals", detail: goalsDetail, icon: "scope", route: .goals)
+                    Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
                     SetupRow(title: "Places", detail: placesDetail, icon: "mappin.and.ellipse", route: .places)
                     Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
                     SetupRow(title: "Health profile", detail: healthDetail, icon: "cross.case", route: .health)
@@ -141,6 +144,10 @@ struct RegimenView: View {
                 }
             }
         }
+    }
+
+    private var goalsDetail: String {
+        Goal.shown(chosen: store.goals, plans: plans).map(\.label).joined(separator: ", ")
     }
 
     private var placesDetail: String {
@@ -153,15 +160,16 @@ struct RegimenView: View {
     }
 }
 
-/// The four goals side by side (D124). Each column is lit by what its plan asks of today: a session,
+/// Your goals side by side (D124, D191). Each column is lit by what its plan asks of today: a session,
 /// rest, done, a hold, or no plan yet. Read left to right it's the whole regime at a glance.
 private struct GoalRail: View {
+    let goals: [Goal]
     let plans: [any TrainingPlan]
     let day: RegimenDay
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            ForEach(Goal.allCases, id: \.self) { goal in
+            ForEach(goals, id: \.self) { goal in
                 column(goal)
             }
         }
@@ -310,6 +318,7 @@ struct RegimenOverline: View {
 struct RegimenTodayCard: View {
     @EnvironmentObject private var router: NavRouter
     @ObservedObject private var runner = C25KRunner.shared
+    @ObservedObject private var store = RegimenStore.shared
 
     private var plans: [any TrainingPlan] { [runner.plan] }
 
@@ -344,7 +353,7 @@ struct RegimenTodayCard: View {
                             .font(StrandFont.headline)
                             .foregroundStyle(StrandPalette.textPrimary)
                     }
-                    GoalRail(plans: plans, day: day)
+                    GoalRail(goals: Goal.shown(chosen: store.goals, plans: plans), plans: plans, day: day)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

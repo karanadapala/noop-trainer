@@ -583,6 +583,7 @@ enum DemoScreens {
         // NOOP Trainer (Sprint 2): the Regimen and its setup screens.
         case "regimen":  return AnyView(RegimenView())
         case "regimencard": return AnyView(ScrollView { RegimenTodayCard().padding(16) })
+        case "goals":    return AnyView(GoalsView())
         case "places":   return AnyView(PlacesView())
         case "healthprofile": return AnyView(HealthProfileView())
         case "c25khistory": return AnyView(C25KHistoryView())
