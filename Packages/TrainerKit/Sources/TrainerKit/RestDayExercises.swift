@@ -3,6 +3,8 @@ import Foundation
 /// The building blocks of a C25K rest day (research 03 §11, D47).
 public enum Block: String, CaseIterable, Codable, Sendable {
     case footBalance, lowerLeg, hipThigh, mobility, walk
+    /// Back care's trunk work (D99, D100): its own plan, not a rest-day block.
+    case core
 
     public var label: String {
         switch self {
@@ -11,6 +13,7 @@ public enum Block: String, CaseIterable, Codable, Sendable {
         case .hipThigh: return "Hips and thighs"
         case .mobility: return "Stretches"
         case .walk: return "Easy walk"
+        case .core: return "Core"
         }
     }
 
@@ -59,15 +62,54 @@ public struct Dose: Equatable, Sendable {
     public let perSide: Bool
     /// What changes at this stage, spoken and shown: "Seated", "Single-leg on the stair edge".
     public let variant: String
+    /// Descending sets (McGill's reverse pyramid, D99): set k does `pyramid[k]` held reps. Nil: every
+    /// set is `work`.
+    public let pyramid: [Int]?
+    /// Rest between sets, when the exercise wants other than the usual.
+    public let restSeconds: Int?
 
     public init(sets: Int, _ work: Work, perSide: Bool = false, variant: String) {
         self.sets = sets
         self.work = work
         self.perSide = perSide
         self.variant = variant
+        self.pyramid = nil
+        self.restSeconds = nil
     }
 
-    public func withSets(_ n: Int) -> Dose { Dose(sets: max(1, n), work, perSide: perSide, variant: variant) }
+    /// Descending sets of held reps: `[4, 3, 2]` holds of `holdSeconds` each.
+    public init(pyramid: [Int], holdSeconds: Int, perSide: Bool = false, rest: Int, variant: String) {
+        self.sets = max(1, pyramid.count)
+        self.work = .heldReps(pyramid.first ?? 1, holdSeconds: holdSeconds)
+        self.perSide = perSide
+        self.variant = variant
+        self.pyramid = pyramid
+        self.restSeconds = rest
+    }
+
+    private init(sets: Int, work: Work, perSide: Bool, variant: String, pyramid: [Int]?, rest: Int?) {
+        self.sets = sets
+        self.work = work
+        self.perSide = perSide
+        self.variant = variant
+        self.pyramid = pyramid
+        self.restSeconds = rest
+    }
+
+    /// Fewer sets; a pyramid keeps its first (largest) ones.
+    public func withSets(_ n: Int) -> Dose {
+        let n = max(1, n)
+        return Dose(sets: n, work: work, perSide: perSide, variant: variant,
+                    pyramid: pyramid.map { Array($0.prefix(n)) }, rest: restSeconds)
+    }
+
+    /// The work for set `n` (1-based).
+    public func work(forSet n: Int) -> Work {
+        guard let pyramid, case .heldReps(_, let hold) = work, pyramid.indices.contains(n - 1) else { return work }
+        return .heldReps(pyramid[n - 1], holdSeconds: hold)
+    }
+
+    public var rest: Int { restSeconds ?? Exercise.restBetweenSets }
 
     /// Seconds of work and rest, for estimating a routine's length.
     public var estimatedSeconds: Int {
@@ -77,8 +119,17 @@ public struct Dose: Equatable, Sendable {
         case .hold(let s): perSet = s
         case .heldReps(let n, let hold): perSet = n * (hold + 2)
         }
-        let rounds = sets * (perSide ? 2 : 1)
-        return rounds * perSet + (rounds - 1) * Exercise.restBetweenSets
+        let sides = perSide ? 2 : 1
+        if pyramid != nil {
+            let work = (1...sets).map { n -> Int in
+                if case .heldReps(let r, let hold) = self.work(forSet: n) { return r * (hold + 2) }
+                return perSet
+            }.reduce(0, +) * sides
+            let rounds = sets * sides
+            return work + (rounds - 1) * rest
+        }
+        let rounds = sets * sides
+        return rounds * perSet + (rounds - 1) * rest
     }
 }
 

@@ -56,7 +56,7 @@ public struct RoutineTimeline: Equatable, Sendable {
             cues.append(Cue(at: time - CueTimeline.countdownLead, text: "3. 2. 1.", priority: .transition, kind: .countdown))
         }
 
-        let intro = "\(routine.variant.label) routine, about \(routine.estimatedMinutes) minutes."
+        let intro = "\(routine.variant.spokenName), about \(routine.estimatedMinutes) minutes."
             + (routine.painRule.map { " " + $0 } ?? "")
         if routine.walkMinutes > 0 {
             let s = add(.walk, routine.walkMinutes * 60, nil, "Easy walk", "\(routine.walkMinutes) minutes, easy enough to chat")
@@ -80,7 +80,7 @@ public struct RoutineTimeline: Equatable, Sendable {
             let sides: [String?] = dose.perSide ? [Self.side(ex, left: true), Self.side(ex, left: false)] : [nil]
             for set in 1...dose.sets {
                 for (sideIndex, side) in sides.enumerated() {
-                    let (seconds, reps, count) = Self.work(dose.work)
+                    let (seconds, reps, count) = Self.work(dose.work(forSet: set))
                     var detail = dose.sets > 1 ? "Set \(set) of \(dose.sets)" : "One set"
                     if let side { detail += " · \(side.capitalizingFirst)" }
                     detail += " · \(count)"
@@ -89,7 +89,7 @@ public struct RoutineTimeline: Equatable, Sendable {
                     if let side { announce += announce.isEmpty ? side.capitalizingFirst : ", \(side)" }
                     announce += announce.isEmpty ? "\(count.capitalizingFirst)." : ". \(count)."
                     cues.append(Cue(at: w, text: announce, priority: .transition))
-                    cues += Self.workCues(dose.work, from: w + Double(Self.getReady))
+                    cues += Self.workCues(dose.work(forSet: set), from: w + Double(Self.getReady))
 
                     let lastRound = set == dose.sets && sideIndex == sides.count - 1
                     if lastRound { continue }
@@ -97,8 +97,8 @@ public struct RoutineTimeline: Equatable, Sendable {
                         let r = add(.rest, Self.switchSides, ex, "Switch sides", "Get set on the other side")
                         cues.append(Cue(at: r, text: "Switch sides.", priority: .transition))
                     } else {
-                        let r = add(.rest, Exercise.restBetweenSets, ex, "Rest", "Next: set \(set + 1) of \(dose.sets)")
-                        cues.append(Cue(at: r, text: "Rest \(Exercise.restBetweenSets) seconds.", priority: .transition))
+                        let r = add(.rest, dose.rest, ex, "Rest", "Next: set \(set + 1) of \(dose.sets)")
+                        cues.append(Cue(at: r, text: "Rest \(dose.rest) seconds.", priority: .transition))
                         countdown(into: t)
                     }
                 }

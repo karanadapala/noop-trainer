@@ -27,6 +27,9 @@ public enum RoutineVariant: String, CaseIterable, Codable, Comparable, Sendable 
     /// The five easy minutes for shins, calves and feet after a run (D110, D118); not a rest-day choice.
     case base
     case protect, restore, steady, build
+    /// Back care (D98–D100): the Big 3, and the anti-movement work after lifting. Logged by Back care,
+    /// not as rest-day routines.
+    case coreA, coreB
 
     /// The routines a rest day can be swapped between.
     public static let restDay: [RoutineVariant] = [.protect, .restore, .steady, .build]
@@ -42,8 +45,22 @@ public enum RoutineVariant: String, CaseIterable, Codable, Comparable, Sendable 
         case .steady: return "Steady"
         case .restore: return "Restore"
         case .protect: return "Protect"
+        case .coreA: return "Big 3"
+        case .coreB: return "Core B"
         }
     }
+
+    /// How the coach introduces it.
+    public var spokenName: String {
+        switch self {
+        case .coreA: return "The Big 3"
+        case .coreB: return "Core B"
+        default: return "\(label) routine"
+        }
+    }
+
+    /// Back care's sessions, which don't count as rest-day routines.
+    public var isBackCare: Bool { self == .coreA || self == .coreB }
 
     public var summary: String {
         switch self {
@@ -52,6 +69,8 @@ public enum RoutineVariant: String, CaseIterable, Codable, Comparable, Sendable 
         case .steady: return "An easy walk, feet and one strength block, a little lighter."
         case .restore: return "An easy walk, gentle foot drills and stretches. No strength today."
         case .protect: return "Nothing that loads an area with a red flag. Rest is the work today."
+        case .coreA: return "Curl-up, side plank and bird dog: short holds, never to failure."
+        case .coreB: return "Resist twisting, leaning and arching, after the lifts."
         }
     }
 }
@@ -114,12 +133,15 @@ public enum RoutineBuilder {
         public var focus: [BodyArea]
         /// A walk is already done today (the getting-back-to-running walk), so the routine skips its own.
         public var walkedToday: Bool
+        /// Exercises another plan covers today (Back care's side plank replaces this one, D99).
+        public var leaveOut: Set<String>
 
         public init(charge: Double?, legs: LegFeel, pain: PainState, restDayInARow: Int, programWeek: Int,
                     stages: [Block: Stage] = [:], lastStrengthBlock: Block? = nil, rotation: Int = 0,
-                    focus: [BodyArea] = [], walkedToday: Bool = false) {
+                    focus: [BodyArea] = [], walkedToday: Bool = false, leaveOut: Set<String> = []) {
             self.focus = focus
             self.walkedToday = walkedToday
+            self.leaveOut = leaveOut
             self.charge = charge
             self.legs = legs
             self.pain = pain
@@ -161,6 +183,7 @@ public enum RoutineBuilder {
         case .restore: return 6 * 60
         case .protect: return 8 * 60
         case .base: return 5 * 60
+        case .coreA, .coreB: return 12 * 60
         }
     }
 
@@ -206,15 +229,15 @@ public enum RoutineBuilder {
 
     /// The base block (D118): about five easy minutes of shins, calves and feet after a run, with the
     /// focus areas' easy work first. One set each; nothing loads an area with a red flag.
-    public static func base(pain: PainState, focus: [BodyArea]) -> RestRoutine {
+    public static func base(pain: PainState, focus: [BodyArea], leaveOut: Set<String> = []) -> RestRoutine {
         let input = Input(charge: nil, legs: .usual, pain: pain, restDayInARow: 0, programWeek: 1, focus: focus)
         let areas = focusAreas(input)
         let flagged = Set(pain.redFlagAreas)
-        let focused = focusItems(areas, perArea: 2, avoiding: flagged)
+        let focused = focusItems(areas, perArea: 2, avoiding: flagged).filter { !leaveOut.contains($0.exercise.id) }
         let taken = Set(focused.map(\.exercise.id))
         let everyday = ["tibRaise", "bentKneeCalf", "shortFoot", "toeYoga", "balance"]
             .compactMap { id in RestDayCatalogue.all.first { $0.id == id } }
-            .filter { $0.loads.isDisjoint(with: flagged) && !taken.contains($0.id) }
+            .filter { $0.loads.isDisjoint(with: flagged) && !taken.contains($0.id) && !leaveOut.contains($0.id) }
             .map { RoutineItem(exercise: $0, dose: $0.dose(.learn).withSets(1)) }
         return RestRoutine(variant: .base, walkMinutes: 0, items: focused + fit(everyday, within: exerciseBudget(.base)),
                            skippedAreas: pain.redFlagAreas, focusAreas: areas, stages: [:])
@@ -235,7 +258,7 @@ public enum RoutineBuilder {
         func pick(_ block: Block, _ count: Int, stageOverride: Stage? = nil, setsDelta: Int = 0,
                   excluding: Set<String> = []) -> [RoutineItem] {
             let pool = RestDayCatalogue.exercises(in: block)
-                .filter { $0.loads.isDisjoint(with: sore) && !excluding.contains($0.id) }
+                .filter { $0.loads.isDisjoint(with: sore) && !excluding.contains($0.id) && !input.leaveOut.contains($0.id) }
             guard !pool.isEmpty else { return [] }
             let start = input.rotation % pool.count
             let rotated = Array(pool[start...] + pool[..<start])
@@ -262,10 +285,11 @@ public enum RoutineBuilder {
             list = pick(.footBalance, 1, stageOverride: .learn, excluding: ["balance"]) + pick(.mobility, 2)
         case .protect:
             list = pick(.footBalance, 1, stageOverride: .learn, excluding: ["balance"]) + pick(.mobility, 2)
-        case .base:
-            return base(pain: input.pain, focus: input.focus)
+        case .base, .coreA, .coreB:
+            return base(pain: input.pain, focus: input.focus, leaveOut: input.leaveOut)
         }
         let focused = focusItems(areas, perArea: variant >= .steady ? 3 : 2, avoiding: flagged)
+            .filter { !input.leaveOut.contains($0.exercise.id) }
         let focusedIDs = Set(focused.map(\.exercise.id))
         list = fit(list.filter { !focusedIDs.contains($0.exercise.id) }, within: exerciseBudget(variant))
         let kept = Set(list.map(\.exercise.block))
