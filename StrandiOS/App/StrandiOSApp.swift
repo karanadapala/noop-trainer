@@ -424,7 +424,7 @@ struct StrandiOSApp: App {
     /// push — see `LiftLiveActivityController.update`.
     @MainActor
     private func pushLiftActivity(alert: Bool = false) {
-        let system = UnitSystem(rawValue: unitSystemRaw) ?? .metric
+        let system = liftSession.unitOverride ?? UnitSystem(rawValue: unitSystemRaw) ?? .metric
         guard let p = liftSession.presentation(system: system) else {
             liftActivity.update(state: nil)
             return

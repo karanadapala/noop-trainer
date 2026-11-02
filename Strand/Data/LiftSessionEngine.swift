@@ -48,6 +48,9 @@ struct LiftPlanItem: Equatable {
     /// Added while the session ran (`LiftSessionEngine.addExercise`), so the program has no line for it
     /// yet; finishing offers to add one.
     var addedInSession: Bool
+    /// `targetWeightKg` is a plan's suggestion for today (Trainer: Heavy Duty's next weight), so it
+    /// shows ahead of last session's weight rather than behind it.
+    var weightSuggested: Bool
 
     /// Rest used when a program line does not specify one. Two minutes sits in the middle of the
     /// range the hypertrophy literature uses for compound work, and is only a starting value: what
@@ -65,7 +68,8 @@ struct LiftPlanItem: Equatable {
          targetWeightKg: Double? = nil,
          note: String? = nil,
          programItemId: String? = nil,
-         addedInSession: Bool = false) {
+         addedInSession: Bool = false,
+         weightSuggested: Bool = false) {
         self.exercise = exercise
         self.primaryMuscle = primaryMuscle
         self.secondaryMuscles = secondaryMuscles
@@ -78,6 +82,7 @@ struct LiftPlanItem: Equatable {
         self.note = note
         self.programItemId = programItemId
         self.addedInSession = addedInSession
+        self.weightSuggested = weightSuggested
     }
 }
 
@@ -296,7 +301,8 @@ struct LiftSessionEngine: Equatable {
         let last = lastSession[slot.setIndex]
         let item = planItem(for: slot)
         return LiftSetCarry(
-            weightKg: previous?.weightKg ?? last?.weightKg ?? item?.targetWeightKg,
+            weightKg: previous?.weightKg ?? (item?.weightSuggested == true ? item?.targetWeightKg : nil)
+                ?? last?.weightKg ?? item?.targetWeightKg,
             reps: previous?.reps ?? last?.reps ?? item?.targetRepsLow)
     }
 

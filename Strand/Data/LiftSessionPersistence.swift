@@ -35,6 +35,9 @@ enum LiftSessionPersistence {
         /// as absent and the session resumes with nothing pending, which is exactly right.
         var pendingValues: [PendingValue]?
         var pendingWarmups: [SlotBox]?
+        /// The weight unit the session shows, when its plan set one (a place's unit, Trainer D89).
+        /// Absent means the app's own unit.
+        var unitSystem: String?
 
         struct PendingValue: Codable, Equatable {
             var exerciseIndex: Int
@@ -67,6 +70,8 @@ enum LiftSessionPersistence {
             /// True for a line added during the session. Absent from a snapshot written before lines
             /// could be added, which decodes to nil: a line from the program.
             var addedInSession: Bool?
+            /// True when the weight is a plan's suggestion for today. Absent: an ordinary target.
+            var weightSuggested: Bool?
         }
 
         /// The stage as a flat, forward-compatible record rather than an encoded enum: a persisted
@@ -138,7 +143,8 @@ enum LiftSessionPersistence {
                          programId: String?,
                          programName: String?,
                          pendingValues: [LiftSlot: LiftSessionController.PendingSetValues],
-                         pendingWarmups: Set<LiftSlot>) -> Snapshot {
+                         pendingWarmups: Set<LiftSlot>,
+                         unitSystem: UnitSystem? = nil) -> Snapshot {
         Snapshot(
             startSec: engine.startTs,
             programId: programId,
@@ -156,7 +162,8 @@ enum LiftSessionPersistence {
                                   note: $0.note,
                                   programItemId: $0.programItemId,
                                   // Written only when true, so a session nobody added to encodes as before.
-                                  addedInSession: $0.addedInSession ? true : nil)
+                                  addedInSession: $0.addedInSession ? true : nil,
+                                  weightSuggested: $0.weightSuggested ? true : nil)
             },
             stage: box(engine.stage),
             sets: engine.sets.map {
@@ -176,7 +183,8 @@ enum LiftSessionPersistence {
                 },
             pendingWarmups: pendingWarmups
                 .sorted { ($0.exerciseIndex, $0.setIndex) < ($1.exerciseIndex, $1.setIndex) }
-                .map { Snapshot.SlotBox(exerciseIndex: $0.exerciseIndex, setIndex: $0.setIndex) })
+                .map { Snapshot.SlotBox(exerciseIndex: $0.exerciseIndex, setIndex: $0.setIndex) },
+            unitSystem: unitSystem?.rawValue)
     }
 
     /// The numbers typed in advance, back as the controller holds them.
@@ -210,7 +218,8 @@ enum LiftSessionPersistence {
                          targetWeightKg: $0.targetWeightKg,
                          note: $0.note,
                          programItemId: $0.programItemId,
-                         addedInSession: $0.addedInSession ?? false)
+                         addedInSession: $0.addedInSession ?? false,
+                         weightSuggested: $0.weightSuggested ?? false)
         }
         let sets = s.sets.map {
             LiftRecordedSet(exerciseIndex: $0.exerciseIndex, setIndex: $0.setIndex,

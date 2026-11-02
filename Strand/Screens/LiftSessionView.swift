@@ -46,7 +46,7 @@ struct LiftSessionView: View {
     private enum ProgramChoice: Hashable { case update, keep }
 
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
-    private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
+    private var unitSystem: UnitSystem { session.unitOverride ?? UnitSystem(rawValue: unitSystemRaw) ?? .metric }
 
     @FocusState private var focused: FocusTarget?
     private enum FocusTarget: Hashable {
