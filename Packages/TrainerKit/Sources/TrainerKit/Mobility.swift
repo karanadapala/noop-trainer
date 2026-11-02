@@ -203,6 +203,9 @@ public struct MobilityOptions: Codable, Equatable, Sendable {
     public var minutesAfterWaking = 60
     /// Phase 3: strength drills on every other full session (about 2 of 5).
     public var strengthEvery = 2
+    /// Test days: weeks between them (D199), and not before this hour (afternoon, research 07 §5).
+    public var testEveryWeeks = 4
+    public var testFromHour = 12
 
     public init() {}
 }
@@ -223,9 +226,11 @@ public struct MobilityPlan: TrainingPlan {
     public let liftToday: HeavyDuty.Workout?
     public let liftDone: Bool
     public let wake: Date?
+    public let tests: [MobilityTestResult]
 
     public init(options: MobilityOptions, start: Date, log: [MobilityLog], pain: [PainEntry], shinCleared: Bool,
-                liftToday: HeavyDuty.Workout?, liftDone: Bool, wake: Date?) {
+                liftToday: HeavyDuty.Workout?, liftDone: Bool, wake: Date?, tests: [MobilityTestResult] = []) {
+        self.tests = tests
         self.options = options
         self.start = start
         self.log = log
@@ -248,7 +253,8 @@ public struct MobilityPlan: TrainingPlan {
     }
 
     public func next(now: Date, calendar: Calendar = .current) -> Next {
-        if log.contains(where: { calendar.isDate($0.date, inSameDayAs: now) }) { return .done }
+        if log.contains(where: { calendar.isDate($0.date, inSameDayAs: now) })
+            || tests.contains(where: { calendar.isDate($0.date, inSameDayAs: now) }) { return .done }
         if let wake, calendar.isDate(wake, inSameDayAs: now) {
             let from = wake.addingTimeInterval(TimeInterval(options.minutesAfterWaking * 60))
             if now < from { return .later(from) }
@@ -276,6 +282,10 @@ public struct MobilityPlan: TrainingPlan {
     public func today(now: Date, calendar: Calendar = .current) -> PlanToday {
         let w = week(now: now, calendar: calendar)
         let phase = Mobility.Phase.of(week: w)
+        if testFitsToday(tests: tests, now: now, calendar: calendar), next(now: now, calendar: calendar) == .session(.full) {
+            return PlanToday(planID: id, status: .session, headline: tests.isEmpty ? "Test day: your baseline" : "Test day",
+                             detail: "8 tests after a short warm-up · about 25 min", minutes: 25, works: [.legs, .back])
+        }
         switch next(now: now, calendar: calendar) {
         case .session(let s):
             let r = routine(for: s, now: now, calendar: calendar)

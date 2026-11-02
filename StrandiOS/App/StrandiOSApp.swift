@@ -592,6 +592,7 @@ enum DemoScreens {
         case "heavyduty": return AnyView(HeavyDutyView())
         case "backcare": return AnyView(BackCareView())
         case "mobility": return AnyView(MobilityView())
+        case "mobilitytest": return AnyView(MobilityTestView(isBaseline: true, shinCleared: false) { _ in })
         case "sleep":    return AnyView(SleepView())
         case "live":     return AnyView(LiveView())
         case "stress":   return AnyView(StressView())

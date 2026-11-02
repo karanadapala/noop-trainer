@@ -18,6 +18,8 @@ final class MobilityStore: ObservableObject {
     @Published private(set) var start: Date? { didSet { UserDefaults.standard.set(start, forKey: Self.startKey) } }
     @Published var options: MobilityOptions { didSet { Self.save(options, Self.optionsKey) } }
     @Published private(set) var log: [MobilityLog] { didSet { Self.save(log, Self.logKey) } }
+    /// Test days, oldest first (D148, D199).
+    @Published private(set) var tests: [MobilityTestResult] { didSet { Self.save(tests, Self.testsKey) } }
 
     private var running: (session: Mobility.Session, week: Int)?
 
@@ -25,6 +27,7 @@ final class MobilityStore: ObservableObject {
     private static let startKey = "trainer.mobility.start"
     private static let optionsKey = "trainer.mobility.options"
     private static let logKey = "trainer.mobility.log"
+    private static let testsKey = "trainer.mobility.tests"
 
     private init() {
         let d = UserDefaults.standard
@@ -32,6 +35,28 @@ final class MobilityStore: ObservableObject {
         start = d.object(forKey: Self.startKey) as? Date
         options = Self.decode(MobilityOptions.self, Self.optionsKey) ?? MobilityOptions()
         log = Self.decode([MobilityLog].self, Self.logKey) ?? []
+        tests = Self.decode([MobilityTestResult].self, Self.testsKey) ?? []
+    }
+
+    // MARK: Test days
+
+    func saveTest(_ result: MobilityTestResult) {
+        tests.append(result)
+        if result.nerveSign {
+            C25KRunner.shared.recordPain([PainEntry(area: .back, date: Date(), kind: .rating(2), feel: .tingling)])
+        }
+    }
+
+    /// The test day before today whose next-morning back unease isn't answered yet (within 3 days).
+    var awaitingUnease: MobilityTestResult? {
+        guard let last = tests.last, last.nextDayUnease == nil, !Calendar.current.isDateInToday(last.date),
+              Date().timeIntervalSince(last.date) < 3 * 86_400 else { return nil }
+        return last
+    }
+
+    func setNextDayUnease(_ score: Int) {
+        guard !tests.isEmpty else { return }
+        tests[tests.count - 1].nextDayUnease = score
     }
 
     func plan(heavyDuty: HeavyDutyStore = .shared, runner: C25KRunner = .shared, now: Date = Date()) -> MobilityPlan {
@@ -39,7 +64,7 @@ final class MobilityStore: ObservableObject {
         let legAreas: Set<BodyArea> = [.shins, .calves, .feet]
         let shinCleared = !runner.returnToRun.holdsRuns && !runner.painState.holds.contains { legAreas.contains($0.area) }
         return MobilityPlan(options: options, start: start ?? now, log: log, pain: runner.pain, shinCleared: shinCleared,
-                            liftToday: lift, liftDone: done, wake: BackCareStore.shared.wake)
+                            liftToday: lift, liftDone: done, wake: BackCareStore.shared.wake, tests: tests)
     }
 
     /// Hands a session to the player. False when another coach is running.

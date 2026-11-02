@@ -13,6 +13,9 @@ struct MobilityView: View {
 
     @State private var blocked = false
     @State private var confirmRemove = false
+    @State private var testing = false
+    /// "Do a session instead" on a test day.
+    @State private var sessionInstead = false
 
     private var plan: MobilityPlan { store.plan() }
 
@@ -22,7 +25,9 @@ struct MobilityView: View {
                 if let flare = BackFlare.current(entries: runner.pain, now: Date()) { BackFlareCard(flare: flare) }
                 if store.enabled {
                     phaseStrip
+                    if store.awaitingUnease != nil { uneaseCard }
                     todayCard
+                    testsSection
                     drillList
                     rulesCard
                     settingsSection
@@ -38,6 +43,9 @@ struct MobilityView: View {
             get: { routineRunner.state != .idle && routineRunner.routine?.variant == .mobility },
             set: { _ in })) {
             RoutinePlayerView()
+        }
+        .sheet(isPresented: $testing) {
+            MobilityTestView(isBaseline: store.tests.isEmpty, shinCleared: plan.shinCleared) { store.saveTest($0) }
         }
         .alert("Another session is running", isPresented: $blocked) {
             Button("OK", role: .cancel) {}
@@ -114,8 +122,13 @@ struct MobilityView: View {
 
     // MARK: Today
 
+    private var testToday: Bool { !sessionInstead && plan.testFitsToday(tests: store.tests, now: Date()) }
+
     private var todayCard: some View {
-        let today = plan.today(now: Date())
+        let today = sessionInstead ? MobilityPlan(options: plan.options, start: plan.start, log: plan.log, pain: plan.pain,
+                                                  shinCleared: plan.shinCleared, liftToday: plan.liftToday,
+                                                  liftDone: plan.liftDone, wake: plan.wake).today(now: Date())
+            : plan.today(now: Date())
         let next = plan.next(now: Date())
         return StrandCard(padding: 20, tint: today.status == .session ? StrandPalette.effortColor : nil) {
             VStack(alignment: .leading, spacing: 12) {
@@ -128,7 +141,15 @@ struct MobilityView: View {
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if case .session(let s) = next {
+                if testToday {
+                    NoopButton("Start the test day", systemImage: "ruler", kind: .primary, fullWidth: true) { testing = true }
+                    Button { sessionInstead = true } label: {
+                        Label("Do a session instead", systemImage: "arrow.triangle.2.circlepath")
+                            .font(StrandFont.subhead.weight(.semibold))
+                            .foregroundStyle(StrandPalette.accent)
+                    }
+                    .buttonStyle(.plain)
+                } else if case .session(let s) = next {
                     NoopButton("Start the session", systemImage: "play.fill", kind: .primary, fullWidth: true) {
                         if !store.start(s, plan: plan) { blocked = true }
                     }
@@ -139,6 +160,77 @@ struct MobilityView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: Test days
+
+    private var uneaseCard: some View {
+        StrandCard(padding: 18, tint: StrandPalette.accent) {
+            VStack(alignment: .leading, spacing: 12) {
+                RegimenOverline(text: "After the test day", color: StrandPalette.accent)
+                Text("Back unease this morning, 0 to 10?")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                PainScaleRow(selected: nil) { store.setNextDayUnease($0) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private var testsSection: some View {
+        let changes = MobilityMetric.allCases.compactMap { MobilityChange.of($0, in: store.tests) }
+        let due = plan.testDue(tests: store.tests, now: Date())
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Test days").strandOverline()
+            NoopCard(padding: 0) {
+                VStack(spacing: 0) {
+                    if changes.isEmpty {
+                        Text("No tests yet. The first one is your baseline: an afternoon without lifting, about 25 minutes.")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    ForEach(Array(changes.enumerated()), id: \.element.metric) { i, c in
+                        if i > 0 { Divider().overlay(StrandPalette.hairline).padding(.leading, 16) }
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(c.metric.label)
+                                    .font(StrandFont.subhead)
+                                    .foregroundStyle(StrandPalette.textPrimary)
+                                Text(c.verdict == .baselineOnly ? "Baseline \(Self.num(c.baseline)) \(c.metric.unit)"
+                                     : "\(Self.num(c.baseline)) → \(Self.num(c.latest)) \(c.metric.unit)")
+                                    .font(StrandFont.caption)
+                                    .foregroundStyle(StrandPalette.textTertiary)
+                            }
+                            Spacer()
+                            if c.verdict != .baselineOnly {
+                                StatePill(LocalizedStringKey(Self.verdict(c.verdict)), tone: c.verdict == .better ? .positive
+                                          : c.verdict == .worse ? .warning : .neutral, showsDot: false)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                    }
+                }
+            }
+            Text(store.tests.isEmpty ? "A change only counts when it's past the test's measurement error and holds for two tests in a row."
+                 : "Next test day: \(due <= Date() ? "due now" : due.formatted(.dateTime.weekday(.wide).day().month(.abbreviated))). A change counts when it's past the measurement error twice in a row.")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    static func num(_ v: Double) -> String { v.rounded() == v ? String(Int(v)) : String(format: "%.1f", v) }
+
+    static func verdict(_ v: MobilityChange.Verdict) -> String {
+        switch v {
+        case .better: return "Better"
+        case .worse: return "Worse"
+        case .noRealChange, .baselineOnly: return "No real change yet"
         }
     }
 
