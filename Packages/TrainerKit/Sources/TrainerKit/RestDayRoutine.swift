@@ -194,7 +194,8 @@ public enum RoutineBuilder {
     static func focusAreas(_ input: Input) -> [BodyArea] {
         let flagged = Set(input.pain.redFlagAreas)
         var out: [BodyArea] = []
-        for area in input.pain.active + input.focus where !flagged.contains(area) && !out.contains(area) {
+        for area in input.pain.active + input.focus
+            where BodyArea.focusable.contains(area) && !flagged.contains(area) && !out.contains(area) {
             out.append(area)
         }
         return Array(out.prefix(FocusAreas.maxAreas))

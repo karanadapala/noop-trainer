@@ -26,7 +26,8 @@ public enum BodyRegion: String, CaseIterable, Codable, Sendable {
         case .shins: return .shins
         case .calves: return .calves
         case .feet: return .feet
-        case .lowerBack, .shoulders, .other: return nil
+        case .lowerBack: return .back
+        case .shoulders, .other: return nil
         }
     }
 }

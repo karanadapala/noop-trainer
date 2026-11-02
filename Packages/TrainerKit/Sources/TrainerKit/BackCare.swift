@@ -138,9 +138,12 @@ public struct BackCarePlan: TrainingPlan {
     public let liftDone: Bool
     /// When the strap saw you wake today.
     public let wake: Date?
+    /// A back flare is on (D104): the Big 3 only, and only if it doesn't bring symptoms on.
+    public let flare: Bool
 
     public init(options: BackCareOptions, log: [BackCareLog], levels: [String: Stage], lastLevelChange: Date?,
-                liftToday: HeavyDuty.Workout?, liftDone: Bool, wake: Date?) {
+                liftToday: HeavyDuty.Workout?, liftDone: Bool, wake: Date?, flare: Bool = false) {
+        self.flare = flare
         self.options = options
         self.log = log
         self.levels = levels
@@ -166,6 +169,7 @@ public struct BackCarePlan: TrainingPlan {
             let from = wake.addingTimeInterval(TimeInterval(options.minutesAfterWaking * 60))
             if now < from { return .later(from) }
         }
+        if flare { return didA ? .done : .coreA }
         if let lift = liftToday {
             if liftDone { return didB ? (didA ? .done : .coreA) : .coreB(lift) }
             if !didA && options.warmUpBeforeLifting { return .warmUp(lift) }
@@ -179,7 +183,8 @@ public struct BackCarePlan: TrainingPlan {
         case .coreA:
             let m = BackCare.coreA(levels: levels).estimatedMinutes
             return PlanToday(planID: id, status: .session, headline: "Big 3",
-                             detail: "Curl-up, side plank, bird dog · about \(m) min", minutes: m, works: [.core])
+                             detail: flare ? "Back flare: only if it doesn't bring symptoms on. Stop at the first twinge."
+                                 : "Curl-up, side plank, bird dog · about \(m) min", minutes: m, works: [.core])
         case .warmUp(let w):
             return PlanToday(planID: id, status: .session, headline: "Warm-up before \(w.title)",
                              detail: "One short Big 3 set each, then Core B after the lifts", minutes: 3, works: [.core])

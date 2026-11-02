@@ -3,6 +3,8 @@ import Foundation
 /// Where something hurts (D38).
 public enum BodyArea: String, CaseIterable, Codable, Sendable {
     case shins, calves, knees, feet, hips
+    /// The low back, or the big-toe pain that has meant a sciatica flare (D104): the back flare path.
+    case back
 
     public var label: String {
         switch self {
@@ -11,8 +13,12 @@ public enum BodyArea: String, CaseIterable, Codable, Sendable {
         case .knees: return "Knees"
         case .feet: return "Feet"
         case .hips: return "Hips"
+        case .back: return "Back / big toe"
         }
     }
+
+    /// Areas the rest-day routine can strengthen with a focused block. The back has Back care instead.
+    public static let focusable: [BodyArea] = [.shins, .calves, .knees, .feet, .hips]
 
     /// "shin", "calf", for the coach's voice.
     public var spokenName: String {
@@ -22,6 +28,7 @@ public enum BodyArea: String, CaseIterable, Codable, Sendable {
         case .knees: return "knee"
         case .feet: return "foot"
         case .hips: return "hip"
+        case .back: return "back"
         }
     }
 }
@@ -152,7 +159,7 @@ public struct PainEntry: Codable, Equatable, Sendable {
 
     /// Tingling or numbness, or one-sided pain with back pain: a nerve sign (D113), checked before training.
     public var nerveSign: Bool {
-        feel == .tingling || (backPain == true && side != nil && side != .both)
+        feel == .tingling || (area != .back && backPain == true && side != nil && side != .both)
     }
 
     /// A morning answer on the 0–10 scale, with its trend against the last score.
@@ -196,6 +203,7 @@ public struct PainState: Equatable, Sendable {
         var holds: [Hold] = []
         var redFlags = false
         var flagged: [BodyArea] = []
+        let flare = BackFlare.current(entries: entries, now: now, calendar: calendar)
         for area in BodyArea.allCases {
             guard let e = latest[area], e.kind != .trend(.gone) else { continue }
             active.append(area)
@@ -219,7 +227,9 @@ public struct PainState: Equatable, Sendable {
                 redFlags = true
                 flagged.append(area)
             default:
-                break
+                if area == .back, let flare, flare.easy(now: now) {
+                    holds.append(Hold(area: area, reason: "Back flare: easy until \(flare.easyUntil.formatted(.dateTime.weekday(.abbreviated).hour().minute()))"))
+                }
             }
         }
         let weekAgo = calendar.date(byAdding: .day, value: -7, to: now) ?? now
@@ -291,5 +301,36 @@ public enum PainHistory {
         changed.backPain = entry.backPain
         rest[i] = changed
         return recomputed(rest)
+    }
+}
+
+/// A back flare (D104; research 05 §6): any back or big-toe report starts one. For the first 48 hours
+/// runs, lifting and Core B wait; the Big 3 only if it doesn't bring symptoms on. After that the usual
+/// morning answers decide. Still going after about a week, or with tingling or numbness, it's worth a
+/// GP or physio. A morning "gone" ends it.
+public struct BackFlare: Equatable, Sendable {
+    public static let easyHours = 48
+    public static let clinicianDays = 7
+
+    public let start: Date
+    public let easyUntil: Date
+    public let days: Int
+    public let nerveSign: Bool
+
+    public func easy(now: Date) -> Bool { now < easyUntil }
+
+    public var seeClinician: Bool { nerveSign || days >= Self.clinicianDays }
+
+    public static func current(entries: [PainEntry], now: Date, calendar: Calendar = .current) -> BackFlare? {
+        let back = entries.filter { $0.area == .back }.sorted { $0.date < $1.date }
+        guard let last = back.last, last.kind != .trend(.gone) else { return nil }
+        let lastGone = back.lastIndex { $0.kind == .trend(.gone) }
+        let episode = back[(lastGone.map { $0 + 1 } ?? 0)...]
+        guard let first = episode.first else { return nil }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: first.date),
+                                           to: calendar.startOfDay(for: now)).day ?? 0
+        return BackFlare(start: first.date,
+                         easyUntil: first.date.addingTimeInterval(TimeInterval(easyHours * 3600)),
+                         days: days, nerveSign: episode.contains { $0.nerveSign })
     }
 }

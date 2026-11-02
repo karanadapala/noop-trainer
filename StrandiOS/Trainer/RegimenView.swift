@@ -26,6 +26,7 @@ struct RegimenView: View {
         ScreenScaffold(title: "Regimen", subtitle: "Every plan, one day at a time.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 GoalRail(goals: Goal.shown(chosen: store.goals, plans: plans), plans: plans, day: day)
+                if let flare = BackFlare.current(entries: runner.pain, now: Date()) { BackFlareCard(flare: flare) }
                 nextCard
                 plansSection
                 setupSection

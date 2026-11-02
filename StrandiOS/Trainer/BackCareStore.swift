@@ -51,7 +51,8 @@ final class BackCareStore: ObservableObject {
             }
         }
         return BackCarePlan(options: options, log: log, levels: levels, lastLevelChange: lastLevelChange,
-                            liftToday: lift, liftDone: done, wake: wake)
+                            liftToday: lift, liftDone: done, wake: wake,
+                            flare: runner.painState.holds.contains { $0.area == .back })
     }
 
     /// Today's wake time: the end of the latest sleep that ended today.

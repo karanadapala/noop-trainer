@@ -82,4 +82,41 @@ final class BackCareTests: XCTestCase {
             XCTAssertFalse(RoutineBuilder.routine(for: i).items.contains { $0.exercise.id == "sidePlank" })
         }
     }
+
+    // MARK: Flare path (D104)
+
+    func testABackReportStartsA48HourFlareThenTheMorningsDecide() {
+        let report = PainEntry(area: .back, date: at(3, 20), kind: .rating(4), side: .left)
+        let first = PainState(entries: [report], now: at(4, 9), calendar: cal)
+        XCTAssertTrue(first.holds.contains { $0.area == .back && $0.reason.hasPrefix("Back flare: easy until") })
+        // "Less" the next morning, still inside 48 h: still easy.
+        let less = PainEntry.morning(area: .back, date: at(4, 8), score: 2, previous: 4)
+        XCTAssertTrue(PainState(entries: [report, less], now: at(4, 9), calendar: cal).isOnHold)
+        // After 48 h, "less" lifts it; "same" holds.
+        let later = PainEntry.morning(area: .back, date: at(6, 8), score: 1, previous: 2)
+        XCTAssertFalse(PainState(entries: [report, less, later], now: at(6, 9), calendar: cal).isOnHold)
+        let same = PainEntry.morning(area: .back, date: at(6, 8), score: 2, previous: 2)
+        XCTAssertTrue(PainState(entries: [report, less, same], now: at(6, 9), calendar: cal).isOnHold)
+        // A week on, still there: see a GP or physio. "Gone" ends it.
+        XCTAssertTrue(BackFlare.current(entries: [report, less, same], now: at(10, 9), calendar: cal)?.seeClinician == true)
+        let gone = PainEntry.morning(area: .back, date: at(7, 8), score: 0, previous: 2)
+        XCTAssertNil(BackFlare.current(entries: [report, same, gone], now: at(7, 9), calendar: cal))
+        // Tingling is a nerve sign straight away; "back pain with it" isn't one for the back itself.
+        let tingle = PainEntry(area: .back, date: at(3, 20), kind: .rating(3), side: .left, feel: .tingling)
+        XCTAssertTrue(BackFlare.current(entries: [tingle], now: at(4, 9), calendar: cal)?.seeClinician == true)
+        XCTAssertFalse(PainEntry(area: .back, date: at(3, 20), kind: .rating(3), side: .left, backPain: true).nerveSign)
+        // The back isn't a rest-day focus area.
+        XCTAssertFalse(FocusAreas.current(pain: [report], stops: [], runs: [], benchmarks: [], now: at(4, 9), calendar: cal)
+                        .contains(.back))
+    }
+
+    func testAFlarePausesLiftingAndCoreB() {
+        let hd = HeavyDutyPlan(options: HeavyDutyOptions(), last: [:], firstSession: nil, nextRun: nil, ranToday: false,
+                               c25kFinished: false, liftHolds: ["Back flare: easy until Thu 20:00"])
+        XCTAssertNil(hd.due(now: at(4, 9), calendar: cal))
+        XCTAssertEqual(hd.today(now: at(4, 9), calendar: cal).status, .hold)
+        let bc = BackCarePlan(options: BackCareOptions(), log: [], levels: [:], lastLevelChange: nil,
+                              liftToday: .upper, liftDone: true, wake: nil, flare: true)
+        XCTAssertEqual(bc.next(now: at(4, 18), calendar: cal), .coreA)
+    }
 }

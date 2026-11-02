@@ -65,7 +65,8 @@ final class HeavyDutyStore: ObservableObject {
         }
         return HeavyDutyPlan(options: options, last: last, firstSession: firstSession, nextRun: nextRun,
                              ranToday: ranToday, c25kFinished: finished,
-                             legHolds: runner.painState.holds.map(\.reason), skipped: skipped)
+                             legHolds: runner.painState.holds.map(\.reason), skipped: skipped,
+                             liftHolds: runner.painState.holds.filter { $0.area == .back }.map(\.reason))
     }
 
     func place(_ regimen: RegimenStore) -> Place? { regimen.place(id: placeID) ?? regimen.places.first }

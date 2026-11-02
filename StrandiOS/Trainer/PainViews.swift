@@ -73,8 +73,15 @@ struct PainReportSheet: View {
                     scores[area] = $0
                     spots.remove(area)
                 }
-                SpotToggle(on: spots.contains(area)) {
-                    if spots.contains(area) { spots.remove(area) } else { spots.insert(area) }
+                if area == .back {
+                    Text("Back pain, or the big-toe pain that comes with a flare. Runs, lifting and Core B rest for 48 hours.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    SpotToggle(on: spots.contains(area)) {
+                        if spots.contains(area) { spots.remove(area) } else { spots.insert(area) }
+                    }
                 }
             }
         }
@@ -211,7 +218,7 @@ struct StopSheet: View {
             ChoiceChips(options: PainFeel.allCases, label: \.label, selected: feel,
                         tint: StrandPalette.statusWarning) { feel = $0 }
         }
-        question("Press along it with two fingertips") {
+        if area != .back { question("Press along it with two fingertips") {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Sore along a stretch of a few inches, or in one small spot on the bone?")
                     .font(StrandFont.subhead)
@@ -219,8 +226,8 @@ struct StopSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
                 SpotToggle(on: spot) { spot.toggle() }
             }
-        }
-        if side == .left || side == .right {
+        } }
+        if area != .back && (side == .left || side == .right) {
             Toggle(isOn: $backPain) {
                 Text("Back or buttock pain with it")
                     .font(StrandFont.subhead)
@@ -375,5 +382,64 @@ struct RedFlagSheet: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(StrandPalette.surfaceRaised))
+    }
+}
+
+/// The back flare path (D104; research 05 §6): what rests, what carries on, and when to get it checked.
+/// Shown while a flare is on.
+struct BackFlareCard: View {
+    let flare: BackFlare
+
+    var body: some View {
+        let flags = RedFlags.for(.lowerBack)
+        StrandCard(padding: 18, tint: StrandPalette.statusWarning) {
+            VStack(alignment: .leading, spacing: 12) {
+                RegimenOverline(text: "Back flare", color: StrandPalette.statusWarning)
+                Text(flare.easy(now: Date())
+                     ? "Easy until \(flare.easyUntil.formatted(.dateTime.weekday(.wide).hour().minute()))"
+                     : "The morning check decides now")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                line("pause.circle", "Resting: runs, lifting and Core B for the first 48 hours. After that, \"less\" or \"gone\" in the morning brings them back at last week's level.")
+                line("figure.walk", "Carry on: walking, the rest-day routine, lying face down if that helps, and the Big 3 only if it doesn't bring symptoms on.")
+                if flare.seeClinician {
+                    line("cross.case", flare.nerveSign
+                         ? "Tingling or numbness came with it: see a GP or physio before training again."
+                         : "It's been about a week: worth seeing a GP or physio.", tint: StrandPalette.statusWarning)
+                } else {
+                    line("cross.case", "See a GP or physio if it lasts about a week, spreads, or brings numbness, tingling or weakness.")
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Get urgent help (your local emergency number)")
+                        .font(StrandFont.subhead.weight(.semibold))
+                        .foregroundStyle(StrandPalette.statusCritical)
+                    ForEach(flags.urgent, id: \.self) { item in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Circle().fill(StrandPalette.statusCritical).frame(width: 5, height: 5)
+                            Text(item)
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                Text("Advice to show, not a diagnosis.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func line(_ icon: String, _ text: String, tint: Color = StrandPalette.textSecondary) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+                .frame(width: 18)
+            Text(text)
+                .font(StrandFont.subhead)
+                .foregroundStyle(tint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

@@ -17,7 +17,7 @@ public enum FocusAreas {
     public static func current(pain: [PainEntry], stops: [RunStop], runs: [Date], benchmarks: [CalfBenchmark],
                                now: Date, calendar: Calendar = .current) -> [BodyArea] {
         var started: [(BodyArea, Date)] = []
-        for area in BodyArea.allCases {
+        for area in BodyArea.focusable {
             let entries = pain.filter { $0.area == area }
             let reported: [Date] = entries.filter { e in e.kind == .spot || (e.value ?? 0) >= PainScale.limit }.map { $0.date }
             let stopped: [Date] = stops.filter { s in s.reason == .pain && s.area == area }.map { $0.date }
@@ -40,7 +40,7 @@ public enum FocusAreas {
         switch area {
         case .shins, .calves: return min(last.left, last.right) >= 20 && abs(last.left - last.right) <= 3
         case .feet: return min(last.left, last.right) >= 10
-        case .knees, .hips: return true
+        case .knees, .hips, .back: return true
         }
     }
 }
