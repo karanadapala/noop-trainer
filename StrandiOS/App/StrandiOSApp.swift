@@ -113,6 +113,8 @@ struct StrandiOSApp: App {
                 model?.live.append(log: AppModel.stamped(line))
             })
         _liftSession = StateObject(wrappedValue: liftSession)
+        // Trainer: Heavy Duty's tempo voice follows the session's sets (D78).
+        LiftTempoCoach.shared.watch(liftSession)
         let liftActivity = LiftLiveActivityController(log: { [weak model] line in
             model?.live.append(log: AppModel.stamped(line))
         })

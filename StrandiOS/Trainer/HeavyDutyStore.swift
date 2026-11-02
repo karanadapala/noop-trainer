@@ -117,7 +117,8 @@ final class HeavyDutyStore: ObservableObject {
                                 targetRepsHigh: s.reps.high,
                                 targetWeightKg: s.weight.map { Self.toKg($0, unit) },
                                 note: Self.note(ex, s, effort),
-                                weightSuggested: s.weight != nil)
+                                weightSuggested: s.weight != nil,
+                                endTaps: ex.stopTap.map { [LiftEndTap(label: $0.label, noReps: $0 == .couldntLift)] } ?? [])
         }
         session.start(plan: items, programId: nil, programName: Self.sessionPrefix + workout.title,
                       unit: unit == .lb ? .imperial : .metric)
@@ -152,11 +153,16 @@ final class HeavyDutyStore: ObservableObject {
             if let w = HeavyDuty.Workout.allCases.first(where: { s.programName == Self.sessionPrefix + $0.title }) {
                 lastDates[w] = date
             }
-            let sets = ((try? await store.liftSets(sessionId: s.id)) ?? []).filter { !$0.isWarmup && ($0.reps ?? 0) > 0 }
+            let didNotMove = HeavyDuty.StopTap.couldntLift.label
+            let sets = ((try? await store.liftSets(sessionId: s.id)) ?? [])
+                .filter { !$0.isWarmup && (($0.reps ?? 0) > 0 || $0.note == didNotMove) }
             for (name, group) in Dictionary(grouping: sets, by: \.exercise) {
-                guard let best = group.max(by: { ($0.weightKg ?? 0, $0.reps ?? 0) < ($1.weightKg ?? 0, $1.reps ?? 0) })
-                else { continue }
-                results[name, default: []].append(LiftResult(date: date, weight: best.weightKg, reps: best.reps ?? 0))
+                let moved = group.filter { ($0.reps ?? 0) > 0 }
+                if let best = moved.max(by: { ($0.weightKg ?? 0, $0.reps ?? 0) < ($1.weightKg ?? 0, $1.reps ?? 0) }) {
+                    results[name, default: []].append(LiftResult(date: date, weight: best.weightKg, reps: best.reps ?? 0))
+                } else if let stuck = group.first {
+                    results[name, default: []].append(LiftResult(date: date, weight: stuck.weightKg, reps: 0, didNotMove: true))
+                }
             }
         }
         history = results

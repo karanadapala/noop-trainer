@@ -20,6 +20,9 @@ public enum HeavyDuty {
         case formBroke
         /// The weight didn't move at all (leg extension).
         case couldntLift
+
+        /// The tap's words, which are also the set's note in the Lift Log.
+        public var label: String { self == .formBroke ? "Form broke" : "Couldn't lift it" }
     }
 
     public struct Exercise: Codable, Hashable, Sendable, Identifiable {
@@ -185,11 +188,14 @@ public struct LiftResult: Codable, Equatable, Sendable {
     public let date: Date
     public let weight: Double?
     public let reps: Int
+    /// "Couldn't lift it": the weight didn't move.
+    public let didNotMove: Bool
 
-    public init(date: Date, weight: Double?, reps: Int) {
+    public init(date: Date, weight: Double?, reps: Int, didNotMove: Bool = false) {
         self.date = date
         self.weight = weight
         self.reps = reps
+        self.didNotMove = didNotMove
     }
 }
 
@@ -210,6 +216,8 @@ public struct WeightSuggestion: Equatable, Sendable {
         case stalled
         /// Stalled again: down about 10% and build back up.
         case reset
+        /// Last time it didn't move: a step lighter.
+        case lighter
     }
 
     public let kind: Kind
@@ -236,6 +244,8 @@ public struct WeightSuggestion: Equatable, Sendable {
             return "No progress for two sessions: rest an extra day before this workout, same weight."
         case .reset:
             return "Stalled again: about 10% lighter, then build back up."
+        case .lighter:
+            return "It didn't move last time: a step lighter today."
         }
     }
 
@@ -250,6 +260,12 @@ public struct WeightSuggestion: Equatable, Sendable {
         let previous = history.dropLast().last
         func keep(_ kind: Kind, _ weight: Double? = nil, _ range: RepRange? = nil) -> WeightSuggestion {
             WeightSuggestion(kind: kind, weight: weight ?? w, expectReps: nil, reps: range ?? reps)
+        }
+
+        // It didn't move: the weight before it if that was lighter, else one step down.
+        if last.didNotMove {
+            let back = history.dropLast().last { ($0.weight ?? .infinity) < w && !$0.didNotMove }?.weight
+            return keep(.lighter, back ?? lighterWeight(than: w, target: w * (1 - options.resetPercent / 100), kit: kit))
         }
 
         // After a jump, more than 2 reps under the range: the step was too big.

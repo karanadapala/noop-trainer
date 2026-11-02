@@ -87,6 +87,17 @@ final class HeavyDutyTests: XCTestCase {
                                              kit: dumbbells, options: options).kind, .stalled)
     }
 
+    func testCouldntLiftItGoesLighter() {
+        let stack = Equipment(.legExtensionCurl, lightest: 10, heaviest: 200, step: 10)
+        let s = WeightSuggestion.next(history: [set(1, 70, 14), LiftResult(date: day(8), weight: 80, reps: 0, didNotMove: true)],
+                                      reps: RepRange(12, 20), kit: stack, options: options)
+        XCTAssertEqual(s.kind, .lighter)
+        XCTAssertEqual(s.weight, 70)
+        let first = WeightSuggestion.next(history: [LiftResult(date: day(1), weight: 80, reps: 0, didNotMove: true)],
+                                          reps: RepRange(12, 20), kit: stack, options: options)
+        XCTAssertEqual(first.weight, 70)
+    }
+
     // MARK: Effort
 
     func testEffortBreakInThenShortOfFailureUntilC25KEnds() {

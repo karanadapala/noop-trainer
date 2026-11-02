@@ -15,6 +15,7 @@ struct HeavyDutyView: View {
     @State private var picked: HeavyDuty.Workout?
     @State private var confirmRemove = false
     @State private var nothingFits = false
+    @State private var tempoVoice = LiftTempoCoach.enabled
 
     private var place: Place? { store.place(regimen) }
     private var plan: HeavyDutyPlan { store.plan(runner: runner) }
@@ -264,6 +265,10 @@ struct HeavyDutyView: View {
                     .tint(StrandPalette.accent)
                     Toggle(isOn: $store.options.restDayAfterLifting) {
                         settingText("A rest day after each lifting day", nil)
+                    }
+                    .tint(StrandPalette.accent)
+                    Toggle(isOn: Binding(get: { tempoVoice }, set: { tempoVoice = $0; LiftTempoCoach.enabled = $0 })) {
+                        settingText("Voice calls the tempo during sets", nil)
                     }
                     .tint(StrandPalette.accent)
                     Divider().overlay(StrandPalette.hairline)

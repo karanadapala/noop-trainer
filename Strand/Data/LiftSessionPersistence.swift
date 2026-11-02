@@ -38,6 +38,14 @@ enum LiftSessionPersistence {
         /// The weight unit the session shows, when its plan set one (a place's unit, Trainer D89).
         /// Absent means the app's own unit.
         var unitSystem: String?
+        /// How sets ended when a plan's tap ended them ("Form broke"). Absent: none did.
+        var setNotes: [SetNote]?
+
+        struct SetNote: Codable, Equatable {
+            var exerciseIndex: Int
+            var setIndex: Int
+            var note: String
+        }
 
         struct PendingValue: Codable, Equatable {
             var exerciseIndex: Int
@@ -72,6 +80,8 @@ enum LiftSessionPersistence {
             var addedInSession: Bool?
             /// True when the weight is a plan's suggestion for today. Absent: an ordinary target.
             var weightSuggested: Bool?
+            /// The plan's end-of-set taps. Absent: none.
+            var endTaps: [LiftEndTap]?
         }
 
         /// The stage as a flat, forward-compatible record rather than an encoded enum: a persisted
@@ -144,7 +154,8 @@ enum LiftSessionPersistence {
                          programName: String?,
                          pendingValues: [LiftSlot: LiftSessionController.PendingSetValues],
                          pendingWarmups: Set<LiftSlot>,
-                         unitSystem: UnitSystem? = nil) -> Snapshot {
+                         unitSystem: UnitSystem? = nil,
+                         setNotes: [LiftSlot: String] = [:]) -> Snapshot {
         Snapshot(
             startSec: engine.startTs,
             programId: programId,
@@ -163,7 +174,8 @@ enum LiftSessionPersistence {
                                   programItemId: $0.programItemId,
                                   // Written only when true, so a session nobody added to encodes as before.
                                   addedInSession: $0.addedInSession ? true : nil,
-                                  weightSuggested: $0.weightSuggested ? true : nil)
+                                  weightSuggested: $0.weightSuggested ? true : nil,
+                                  endTaps: $0.endTaps.isEmpty ? nil : $0.endTaps)
             },
             stage: box(engine.stage),
             sets: engine.sets.map {
@@ -184,7 +196,10 @@ enum LiftSessionPersistence {
             pendingWarmups: pendingWarmups
                 .sorted { ($0.exerciseIndex, $0.setIndex) < ($1.exerciseIndex, $1.setIndex) }
                 .map { Snapshot.SlotBox(exerciseIndex: $0.exerciseIndex, setIndex: $0.setIndex) },
-            unitSystem: unitSystem?.rawValue)
+            unitSystem: unitSystem?.rawValue,
+            setNotes: setNotes.isEmpty ? nil : setNotes
+                .sorted { ($0.key.exerciseIndex, $0.key.setIndex) < ($1.key.exerciseIndex, $1.key.setIndex) }
+                .map { Snapshot.SetNote(exerciseIndex: $0.key.exerciseIndex, setIndex: $0.key.setIndex, note: $0.value) })
     }
 
     /// The numbers typed in advance, back as the controller holds them.
@@ -194,6 +209,13 @@ enum LiftSessionPersistence {
             out[LiftSlot(exerciseIndex: p.exerciseIndex, setIndex: p.setIndex)] =
                 LiftSessionController.PendingSetValues(weightKg: p.weightKg, reps: p.reps, rpe: p.rpe)
         }
+        return out
+    }
+
+    /// How sets ended, back as the controller holds them.
+    static func setNotes(from s: Snapshot) -> [LiftSlot: String] {
+        var out: [LiftSlot: String] = [:]
+        for n in s.setNotes ?? [] { out[LiftSlot(exerciseIndex: n.exerciseIndex, setIndex: n.setIndex)] = n.note }
         return out
     }
 
@@ -219,7 +241,8 @@ enum LiftSessionPersistence {
                          note: $0.note,
                          programItemId: $0.programItemId,
                          addedInSession: $0.addedInSession ?? false,
-                         weightSuggested: $0.weightSuggested ?? false)
+                         weightSuggested: $0.weightSuggested ?? false,
+                         endTaps: $0.endTaps ?? [])
         }
         let sets = s.sets.map {
             LiftRecordedSet(exerciseIndex: $0.exerciseIndex, setIndex: $0.setIndex,

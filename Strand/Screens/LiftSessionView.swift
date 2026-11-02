@@ -549,6 +549,16 @@ struct LiftSessionView: View {
                 .accessibilityLabel("Undo")
             }
 
+            if case .working(let slot) = engine.stage, let item = engine.planItem(for: slot), !item.endTaps.isEmpty {
+                HStack(spacing: NoopMetrics.rowSpacing) {
+                    ForEach(item.endTaps, id: \.self) { tap in
+                        Button { session.endSet(note: tap.label, zeroReps: tap.noReps) } label: {
+                            Text(tap.label).frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(NoopButtonStyle(.secondary))
+                    }
+                }
+            }
             HStack(spacing: NoopMetrics.rowSpacing) {
                 Button { session.advance() } label: {
                     Text(actionLabel(engine)).frame(maxWidth: .infinity)
@@ -857,7 +867,7 @@ struct LiftSessionView: View {
                 secondaryMuscles: item?.secondaryMuscles ?? [],
                 setIndex: s.slot.setIndex, weightKg: s.weightKg, reps: s.reps, rpe: s.rpe,
                 isWarmup: s.isWarmup, startTs: s.startTs, endTs: s.endTs,
-                restSec: s.restSec, note: nil)
+                restSec: s.restSec, note: session.setNotes[s.slot])
         }
         _ = try? await store.upsertLiftSets(rows)
         await writeProgram(store: store, plan: engine.plan, sets: finished)

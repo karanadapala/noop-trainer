@@ -51,6 +51,9 @@ struct LiftPlanItem: Equatable {
     /// `targetWeightKg` is a plan's suggestion for today (Trainer: Heavy Duty's next weight), so it
     /// shows ahead of last session's weight rather than behind it.
     var weightSuggested: Bool
+    /// Ways this exercise's set can end besides "Set done", offered as taps while it runs (a plan's
+    /// "Form broke" or "Couldn't lift it"). The tap is saved as the set's note.
+    var endTaps: [LiftEndTap]
 
     /// Rest used when a program line does not specify one. Two minutes sits in the middle of the
     /// range the hypertrophy literature uses for compound work, and is only a starting value: what
@@ -69,7 +72,8 @@ struct LiftPlanItem: Equatable {
          note: String? = nil,
          programItemId: String? = nil,
          addedInSession: Bool = false,
-         weightSuggested: Bool = false) {
+         weightSuggested: Bool = false,
+         endTaps: [LiftEndTap] = []) {
         self.exercise = exercise
         self.primaryMuscle = primaryMuscle
         self.secondaryMuscles = secondaryMuscles
@@ -83,7 +87,14 @@ struct LiftPlanItem: Equatable {
         self.programItemId = programItemId
         self.addedInSession = addedInSession
         self.weightSuggested = weightSuggested
+        self.endTaps = endTaps
     }
+}
+
+/// A plan's way of ending a set: its words, and whether it means the weight didn't move (0 reps).
+struct LiftEndTap: Codable, Equatable, Hashable {
+    var label: String
+    var noReps: Bool
 }
 
 /// One set as actually performed.

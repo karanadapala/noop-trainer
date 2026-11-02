@@ -30,6 +30,8 @@ final class LiftSessionController: ObservableObject {
     /// The weight unit this session shows, when the plan that started it set one (a Trainer place's
     /// unit, D89). Nil: the app's own unit.
     @Published private(set) var unitOverride: UnitSystem?
+    /// How sets ended when a plan's tap ended them, saved as each set's note.
+    @Published private(set) var setNotes: [LiftSlot: String] = [:]
     /// True while the full sheet is presented; false when minimised to the bottom bar.
     @Published var isPresented = false
 
@@ -137,6 +139,7 @@ final class LiftSessionController: ObservableObject {
         self.programId = programId
         self.programName = programName
         unitOverride = unit
+        setNotes = [:]
         warnedFor = nil
         isPresented = true
         claimStrap()
@@ -166,6 +169,7 @@ final class LiftSessionController: ObservableObject {
         programId = snapshot.programId
         programName = snapshot.programName
         unitOverride = snapshot.unitSystem.flatMap(UnitSystem.init(rawValue:))
+        setNotes = LiftSessionPersistence.setNotes(from: snapshot)
         // Numbers typed for sets not yet performed, and warm-ups marked in advance, come back too:
         // they are intent the user already expressed, and losing them is the bug this pair exists
         // to prevent, whether it is lost to a blur or to a relaunch.
@@ -202,6 +206,7 @@ final class LiftSessionController: ObservableObject {
         programId = nil
         programName = nil
         unitOverride = nil
+        setNotes = [:]
         warnedFor = nil
         lastStrapStepAt = nil
         pendingWarmups = []
@@ -472,6 +477,17 @@ final class LiftSessionController: ObservableObject {
         return true
     }
 
+    /// Ends the set being performed with one of its plan's taps: the tap becomes the set's note, and
+    /// "it didn't move" (`zeroReps`) records the set at its weight with 0 reps.
+    func endSet(note: String, zeroReps: Bool = false) {
+        guard case .working(let slot) = engine?.stage else { return }
+        setNotes[slot] = note
+        if zeroReps {
+            updateSet(slot, weightKg: values(of: slot).weightKg, reps: 0, rpe: nil, isWarmup: isWarmup(slot))
+        }
+        advance()
+    }
+
     /// Fill in or correct a set's numbers — **any** set, at any time.
     ///
     /// A set that has been performed is edited in the engine. A set that has NOT been performed
@@ -739,6 +755,7 @@ final class LiftSessionController: ObservableObject {
                                             programName: programName,
                                             pendingValues: pendingValues,
                                             pendingWarmups: pendingWarmups,
-                                            unitSystem: unitOverride))
+                                            unitSystem: unitOverride,
+                                            setNotes: setNotes))
     }
 }
