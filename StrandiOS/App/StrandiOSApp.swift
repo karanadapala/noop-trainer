@@ -590,6 +590,7 @@ enum DemoScreens {
         case "c25khistory": return AnyView(C25KHistoryView())
         case "c25k":     return AnyView(C25KView())
         case "heavyduty": return AnyView(HeavyDutyView())
+        case "backcare": return AnyView(BackCareView())
         case "sleep":    return AnyView(SleepView())
         case "live":     return AnyView(LiveView())
         case "stress":   return AnyView(StressView())

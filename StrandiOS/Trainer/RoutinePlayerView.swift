@@ -116,7 +116,41 @@ struct RoutinePlayerView: View {
         .padding(.vertical, 16)
     }
 
+    @ObservedObject private var backCare = BackCareStore.shared
+
+    @ViewBuilder
     private var finished: some View {
+        if runner.routine?.variant.isBackCare == true { backCareFinished } else { restDayFinished }
+    }
+
+    /// Back care asks how it felt: a week of "easy" offers the next level (D99).
+    private var backCareFinished: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Spacer()
+            overline("Back care done", StrandPalette.accent)
+            Text("\(runner.routine?.variant.label ?? "") complete")
+                .font(StrandFont.rounded(34))
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text("How did that feel?")
+                .font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.textPrimary)
+            VStack(spacing: 10) {
+                ForEach(BackCareFeel.allCases, id: \.self) { feel in
+                    NoopButton(LocalizedStringKey(feel.label), kind: backCare.lastFeel == feel ? .primary : .secondary,
+                               fullWidth: true) { backCare.setFeel(feel) }
+                }
+            }
+            Text("Any left big-toe pain or a new leg symptom: stop Back care for today and check the red flags in your health profile.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            NoopButton("Done", kind: .primary, fullWidth: true) { runner.dismissFinished() }
+        }
+        .padding(20)
+    }
+
+    private var restDayFinished: some View {
         VStack(alignment: .leading, spacing: 16) {
             Spacer()
             overline("Rest day done", StrandPalette.accent)

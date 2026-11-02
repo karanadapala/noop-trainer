@@ -168,9 +168,11 @@ final class HeavyDutyStore: ObservableObject {
 /// Every active plan, the main goal's first (D86): C25K, then the ones you've added.
 @MainActor
 enum ActivePlans {
-    static func all(runner: C25KRunner = .shared, heavyDuty: HeavyDutyStore = .shared) -> [any TrainingPlan] {
+    static func all(runner: C25KRunner = .shared, heavyDuty: HeavyDutyStore = .shared,
+                    backCare: BackCareStore = .shared) -> [any TrainingPlan] {
         var plans: [any TrainingPlan] = [runner.plan]
         if heavyDuty.enabled { plans.append(heavyDuty.plan(runner: runner)) }
+        if backCare.enabled { plans.append(backCare.plan(heavyDuty: heavyDuty, runner: runner)) }
         return plans
     }
 }

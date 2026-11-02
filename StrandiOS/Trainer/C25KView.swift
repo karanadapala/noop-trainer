@@ -281,7 +281,8 @@ struct C25KView: View {
             stages: RestDayProgress.stages(log: routineRunner.sessions, pain: runner.pain, programWeek: week,
                                            repeatingWeek: runner.attempt(week: week) > 1),
             lastStrengthBlock: routineRunner.lastStrengthBlock, rotation: routineRunner.sessions.count,
-            focus: focusAreas, walkedToday: runner.todaysWalk != nil)
+            focus: focusAreas, walkedToday: runner.todaysWalk != nil,
+            leaveOut: BackCareStore.shared.enabled ? BackCare.replacesInRestDay : [])
     }
 
     /// A run was stopped for pain today: the evening is foot core only (research 06 §7c).
@@ -1022,7 +1023,8 @@ struct C25KView: View {
 
     /// The five easy minutes for shins, calves and feet after a run (D55, D118).
     private var baseBlockOffer: some View {
-        let base = RoutineBuilder.base(pain: painState, focus: focusAreas)
+        let base = RoutineBuilder.base(pain: painState, focus: focusAreas,
+                                       leaveOut: BackCareStore.shared.enabled ? BackCare.replacesInRestDay : [])
         return VStack(alignment: .leading, spacing: 10) {
             Text("Base block · about \(base.estimatedMinutes) min")
                 .font(StrandFont.headline)

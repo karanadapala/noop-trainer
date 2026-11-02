@@ -4,7 +4,7 @@ import TrainerKit
 
 /// Screens the Regimen links to, pushed as values so the tab's re-tap pops them (#198).
 enum RegimenRoute: Hashable {
-    case c25k, c25kHistory, heavyDuty, goals, places, health
+    case c25k, c25kHistory, heavyDuty, backCare, goals, places, health
 }
 
 /// The Regimen tab (D139): every active plan for today, under the goals they serve (D124). The goal
@@ -16,6 +16,7 @@ struct RegimenView: View {
     @ObservedObject private var runner = C25KRunner.shared
     @ObservedObject private var store = RegimenStore.shared
     @ObservedObject private var heavyDuty = HeavyDutyStore.shared
+    @ObservedObject private var backCare = BackCareStore.shared
 
     /// The active plans, the main goal's plan first (D86: it wins a clash).
     private var plans: [any TrainingPlan] { ActivePlans.all() }
@@ -32,11 +33,13 @@ struct RegimenView: View {
         }
         .onAppear { runner.applyRestartIfReady() }
         .task(id: session.savedSessions) { await heavyDuty.refresh(repo: repo) }
+        .onAppear { backCare.updateWake(from: repo.sleeps) }
         .navigationDestination(for: RegimenRoute.self) { route in
             Group {
                 switch route {
                 case .c25k: C25KView()
                 case .heavyDuty: HeavyDutyView()
+                case .backCare: BackCareView()
                 case .c25kHistory: C25KHistoryView()
                 case .goals: GoalsView()
                 case .places: PlacesView()
@@ -109,6 +112,7 @@ struct RegimenView: View {
     private func route(for planID: String) -> RegimenRoute {
         switch planID {
         case HeavyDuty.planID: return .heavyDuty
+        case BackCare.planID: return .backCare
         default: return .c25k
         }
     }
@@ -126,13 +130,20 @@ struct RegimenView: View {
                             PlanRow(title: plan.title, goals: plan.goals, today: today)
                         }
                         .buttonStyle(.plain)
-                        if i < plans.count - 1 || !heavyDuty.enabled {
+                        if i < plans.count - 1 || !heavyDuty.enabled || !backCare.enabled {
                             Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
                         }
                     }
                     if !heavyDuty.enabled {
-                        SetupRow(title: "Add a plan", detail: "Heavy Duty (strength). Back care and club classes are next.",
+                        SetupRow(title: "Add Heavy Duty", detail: "Strength: Upper and Legs, about once a week each",
                                  icon: "plus.circle", route: .heavyDuty)
+                    }
+                    if !heavyDuty.enabled && !backCare.enabled {
+                        Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
+                    }
+                    if !backCare.enabled {
+                        SetupRow(title: "Add Back care", detail: "Mobility: the Big 3 most days, core work after lifting",
+                                 icon: "plus.circle", route: .backCare)
                     }
                 }
             }
@@ -333,6 +344,7 @@ struct RegimenTodayCard: View {
     @ObservedObject private var runner = C25KRunner.shared
     @ObservedObject private var store = RegimenStore.shared
     @ObservedObject private var heavyDuty = HeavyDutyStore.shared
+    @ObservedObject private var backCare = BackCareStore.shared
 
     private var plans: [any TrainingPlan] { ActivePlans.all() }
 
