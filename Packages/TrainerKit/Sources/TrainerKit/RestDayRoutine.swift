@@ -30,6 +30,8 @@ public enum RoutineVariant: String, CaseIterable, Codable, Comparable, Sendable 
     /// Back care (D98–D100): the Big 3, and the anti-movement work after lifting. Logged by Back care,
     /// not as rest-day routines.
     case coreA, coreB
+    /// The Mobility plan's sessions (D148), logged by that plan.
+    case mobility
 
     /// The routines a rest day can be swapped between.
     public static let restDay: [RoutineVariant] = [.protect, .restore, .steady, .build]
@@ -47,6 +49,7 @@ public enum RoutineVariant: String, CaseIterable, Codable, Comparable, Sendable 
         case .protect: return "Protect"
         case .coreA: return "Big 3"
         case .coreB: return "Core B"
+        case .mobility: return "Mobility"
         }
     }
 
@@ -55,12 +58,16 @@ public enum RoutineVariant: String, CaseIterable, Codable, Comparable, Sendable 
         switch self {
         case .coreA: return "The Big 3"
         case .coreB: return "Core B"
+        case .mobility: return "Mobility session"
         default: return "\(label) routine"
         }
     }
 
     /// Back care's sessions, which don't count as rest-day routines.
     public var isBackCare: Bool { self == .coreA || self == .coreB }
+
+    /// Sessions another plan logs; they don't count as rest-day routines.
+    public var isPlanSession: Bool { isBackCare || self == .mobility }
 
     public var summary: String {
         switch self {
@@ -71,6 +78,7 @@ public enum RoutineVariant: String, CaseIterable, Codable, Comparable, Sendable 
         case .protect: return "Nothing that loads an area with a red flag. Rest is the work today."
         case .coreA: return "Curl-up, side plank and bird dog: short holds, never to failure."
         case .coreB: return "Resist twisting, leaning and arching, after the lifts."
+        case .mobility: return "Range back for the hips, hamstrings and back, one small step at a time."
         }
     }
 }
@@ -98,6 +106,8 @@ public struct RestRoutine: Equatable, Sendable {
     }
     /// The stage each progressive block in it is done at (logged for D57).
     public let stages: [Block: Stage]
+    /// Said after the intro (a plan's own rules, D148).
+    public var note: String? = nil
 
     public var estimatedMinutes: Int {
         let work = items.map(\.dose.estimatedSeconds).reduce(0, +)
@@ -183,7 +193,7 @@ public enum RoutineBuilder {
         case .restore: return 6 * 60
         case .protect: return 8 * 60
         case .base: return 5 * 60
-        case .coreA, .coreB: return 12 * 60
+        case .coreA, .coreB, .mobility: return 20 * 60
         }
     }
 
@@ -286,7 +296,7 @@ public enum RoutineBuilder {
             list = pick(.footBalance, 1, stageOverride: .learn, excluding: ["balance"]) + pick(.mobility, 2)
         case .protect:
             list = pick(.footBalance, 1, stageOverride: .learn, excluding: ["balance"]) + pick(.mobility, 2)
-        case .base, .coreA, .coreB:
+        case .base, .coreA, .coreB, .mobility:
             return base(pain: input.pain, focus: input.focus, leaveOut: input.leaveOut)
         }
         let focused = focusItems(areas, perArea: variant >= .steady ? 3 : 2, avoiding: flagged)

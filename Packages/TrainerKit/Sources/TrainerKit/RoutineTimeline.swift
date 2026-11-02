@@ -57,7 +57,7 @@ public struct RoutineTimeline: Equatable, Sendable {
         }
 
         let intro = "\(routine.variant.spokenName), about \(routine.estimatedMinutes) minutes."
-            + (routine.painRule.map { " " + $0 } ?? "")
+            + (routine.painRule.map { " " + $0 } ?? "") + (routine.note.map { " " + $0 } ?? "")
         if routine.walkMinutes > 0 {
             let s = add(.walk, routine.walkMinutes * 60, nil, "Easy walk", "\(routine.walkMinutes) minutes, easy enough to chat")
             cues.append(Cue(at: s, text: "\(intro) Start with an easy walk for \(CueTimeline.spokenDuration(routine.walkMinutes * 60)). Keep it conversational.",
@@ -77,7 +77,8 @@ public struct RoutineTimeline: Equatable, Sendable {
             cues.append(Cue(at: c, text: "\(lead)\(ex.name). \(dose.variant). \(ex.howTo)", priority: .transition))
             countdown(into: t)
 
-            let sides: [String?] = dose.perSide ? [Self.side(ex, left: true), Self.side(ex, left: false)] : [nil]
+            let leftFirst = !Self.rightFirst.contains(ex.id)
+            let sides: [String?] = dose.perSide ? [Self.side(ex, left: leftFirst), Self.side(ex, left: !leftFirst)] : [nil]
             for set in 1...dose.sets {
                 for (sideIndex, side) in sides.enumerated() {
                     let (seconds, reps, count) = Self.work(dose.work(forSet: set))
@@ -129,8 +130,14 @@ public struct RoutineTimeline: Equatable, Sendable {
         return (f.string(from: n as NSNumber) ?? "\(n)").capitalizingFirst
     }
 
+    /// Exercises done on a side rather than a leg ("left side").
+    static let bySide: Set<String> = ["sidePlank", "sideLegRaise", "big3SidePlank", "pallof", "suitcaseCarry", "hipFlexor",
+                                      "couchStretch"]
+    /// Nerve sliders start with the side that isn't affected (research 07 §7).
+    static let rightFirst: Set<String> = ["sciaticSlider", "slumpSlider"]
+
     static func side(_ ex: Exercise, left: Bool) -> String {
-        let limb = ex.id == "sidePlank" || ex.id == "sideLegRaise" ? "side" : "leg"
+        let limb = bySide.contains(ex.id) ? "side" : "leg"
         return "\(left ? "left" : "right") \(limb)"
     }
 

@@ -68,13 +68,13 @@ public struct Dose: Equatable, Sendable {
     /// Rest between sets, when the exercise wants other than the usual.
     public let restSeconds: Int?
 
-    public init(sets: Int, _ work: Work, perSide: Bool = false, variant: String) {
+    public init(sets: Int, _ work: Work, perSide: Bool = false, rest: Int? = nil, variant: String) {
         self.sets = sets
         self.work = work
         self.perSide = perSide
         self.variant = variant
         self.pyramid = nil
-        self.restSeconds = nil
+        self.restSeconds = rest
     }
 
     /// Descending sets of held reps: `[4, 3, 2]` holds of `holdSeconds` each.
