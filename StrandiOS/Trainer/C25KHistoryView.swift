@@ -33,6 +33,7 @@ struct C25KHistoryView: View {
                 runsSection
             }
         }
+        .fadesNavigationBarOnScroll()
         .confirmationDialog("This already moved your plan", isPresented: Binding(
             get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
             Button("Delete it anyway", role: .destructive) {

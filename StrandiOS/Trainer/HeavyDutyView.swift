@@ -39,6 +39,7 @@ struct HeavyDutyView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .fadesNavigationBarOnScroll()
         .task(id: session.savedSessions) { await store.refresh(repo: repo) }
         .alert("Nothing to do here", isPresented: $nothingFits) {
             Button("OK", role: .cancel) {}
@@ -211,7 +212,7 @@ struct HeavyDutyView: View {
             Spacer(minLength: 8)
             if here {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(s.weight.map { "\(Self.trim($0)) \(place?.unit.label ?? "kg")" } ?? "Find it")
+                    Text(s.weight.map { "\(Self.trim($0)) \(place?.unit.label ?? "kg")" } ?? "First time")
                         .font(StrandFont.bodyNumber.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
                     Text("× \(s.reps.label)")
@@ -252,9 +253,15 @@ struct HeavyDutyView: View {
                     }
                     .tint(StrandPalette.accent)
                     Divider().overlay(StrandPalette.hairline)
-                    Text("At the heaviest weight a place has")
-                        .font(StrandFont.subhead.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textSecondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("When you outgrow the heaviest weight")
+                            .font(StrandFont.subhead.weight(.semibold))
+                            .foregroundStyle(StrandPalette.textSecondary)
+                        Text("If the place has nothing heavier, the app makes the lift harder another way: the first of these that's on.")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     ForEach(AcceptedStep.allCases, id: \.self) { step in
                         Toggle(isOn: Binding(
                             get: { store.options.acceptedSteps.contains(step) },

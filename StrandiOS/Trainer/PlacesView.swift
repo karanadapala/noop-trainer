@@ -21,6 +21,7 @@ struct PlacesView: View {
                 }
             }
         }
+        .fadesNavigationBarOnScroll()
         .sheet(item: $editing) { place in
             PlaceEditor(place: place, isNew: store.place(id: place.id) == nil,
                         onSave: { store.save($0) }, onDelete: { store.deletePlace(place.id) })

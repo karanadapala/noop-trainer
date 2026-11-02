@@ -30,6 +30,7 @@ struct HealthProfileView: View {
                 if !store.health.regions.isEmpty { watchFor }
             }
         }
+        .fadesNavigationBarOnScroll()
         .sheet(item: $editing) { injury in
             InjuryEditor(injury: injury, isNew: !store.health.injuries.contains { $0.id == injury.id },
                          onSave: { store.save($0) }, onDelete: { store.deleteInjury(injury.id) })

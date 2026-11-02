@@ -105,9 +105,9 @@ public enum AcceptedStep: String, CaseIterable, Codable, Sendable {
 
     public var label: String {
         switch self {
-        case .slowerLowering: return "Slower lowering (5 s down)"
-        case .oneSide: return "One side at a time"
-        case .alternative: return "Another exercise for the same muscle"
+        case .slowerLowering: return "Lower it more slowly (5 s instead of 3)"
+        case .oneSide: return "One arm or one leg at a time"
+        case .alternative: return "Switch to another exercise for the same muscle"
         }
     }
 

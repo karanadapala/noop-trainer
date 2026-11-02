@@ -22,6 +22,7 @@ struct GoalsView: View {
                 }
             }
         }
+        .fadesNavigationBarOnScroll()
     }
 
     private func row(_ goal: Goal) -> some View {
