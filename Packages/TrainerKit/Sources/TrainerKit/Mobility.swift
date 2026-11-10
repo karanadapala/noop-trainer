@@ -217,6 +217,16 @@ public struct MobilityPlan: TrainingPlan {
     public var title: String { Mobility.title }
     public var goals: [Goal] { [.mobility] }
     public var schedule: PlanSchedule { .rotation(minRestDays: 0, maxGapDays: 2) }
+    public var lastSession: Date? { (log.map(\.date) + tests.map(\.date)).max() }
+    public var intensity: SessionIntensity { .gentle }
+
+    public func wayBack(_ step: WayBackStep) -> String {
+        switch step {
+        case .carryOn, .repeatLast, .repeatBlock: return "Carries on where you were."
+        case .stepBack: return "One phase back."
+        case .restart: return "Two phases back."
+        }
+    }
 
     public let options: MobilityOptions
     public let start: Date

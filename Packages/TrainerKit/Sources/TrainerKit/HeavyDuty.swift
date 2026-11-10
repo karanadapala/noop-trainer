@@ -123,6 +123,18 @@ public enum AcceptedStep: String, CaseIterable, Codable, Sendable {
     }
 }
 
+/// Heavy Duty's way back after an illness (D224, research 12 §3): lighter and short of failure first.
+/// Stored on its own key, so adding it doesn't reset the other settings.
+public struct HeavyDutyWayBack: Codable, Equatable, Sendable {
+    /// After a week or less missed: one session this much lighter, this many reps short of failure.
+    public var firstLighterPercent = 10.0
+    public var repsShort = 2
+    /// After up to two weeks: two lighter sessions, this much lighter, then `firstLighterPercent / 2`.
+    public var blockLighterPercent = 12.5
+
+    public init() {}
+}
+
 /// Every Heavy Duty setting the user can change (D97, D108). Defaults follow D75 and research 04 §6.
 public struct HeavyDutyOptions: Codable, Equatable, Sendable {
     public var upperReps = RepRange(8, 12)
@@ -342,6 +354,22 @@ public struct HeavyDutyPlan: TrainingPlan {
     public var title: String { HeavyDuty.title }
     public var goals: [Goal] { [.strength] }
     public var schedule: PlanSchedule { .rotation(minRestDays: options.daysBetween, maxGapDays: options.maxGapDays) }
+    public var lastSession: Date? { last.values.max() }
+    /// Two workouts in turn, each every `daysBetween`: a lift about every half of that.
+    public var usualGapDays: Int { max(options.restDayAfterLifting ? 2 : 1, options.daysBetween / 2) }
+    public var intensity: SessionIntensity { .hard }
+
+    public func wayBack(_ step: WayBackStep) -> String {
+        let w = wayBackOptions
+        func pct(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(0...1))) + "%" }
+        switch step {
+        case .carryOn: return "Same weights as planned."
+        case .repeatLast: return "First session \(pct(w.firstLighterPercent)) lighter, \(w.repsShort) reps short of failure."
+        case .repeatBlock: return "Two lighter sessions: \(pct(w.blockLighterPercent)) less, then \(pct(w.firstLighterPercent / 2)) less."
+        case .stepBack: return "The \(options.breakInWeeks)-week break-in again."
+        case .restart: return "The break-in from scratch, finding each weight again."
+        }
+    }
 
     public let options: HeavyDutyOptions
     public let last: [HeavyDuty.Workout: Date]
@@ -356,10 +384,12 @@ public struct HeavyDutyPlan: TrainingPlan {
     public let skipped: Date?
     /// Holds that stop all lifting (a back flare, D104).
     public let liftHolds: [String]
+    public let wayBackOptions: HeavyDutyWayBack
 
     public init(options: HeavyDutyOptions, last: [HeavyDuty.Workout: Date], firstSession: Date?, nextRun: Date?,
                 ranToday: Bool, c25kFinished: Bool, legHolds: [String] = [], skipped: Date? = nil,
-                liftHolds: [String] = []) {
+                liftHolds: [String] = [], wayBackOptions: HeavyDutyWayBack = HeavyDutyWayBack()) {
+        self.wayBackOptions = wayBackOptions
         self.skipped = skipped
         self.liftHolds = liftHolds
         self.options = options

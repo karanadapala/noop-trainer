@@ -69,6 +69,9 @@ public enum BackCare {
         return RestRoutine(variant: .coreA, walkMinutes: 0, items: items, skippedAreas: [], focusAreas: [], stages: [:])
     }
 
+    /// The sick-day floor (D221): one set of each, the same as the warm-up before lifting.
+    public static func floor(levels: [String: Stage]) -> RestRoutine { coreA(levels: levels, warmUp: true) }
+
     /// Core B after the lifts. Upper day: Pallof press and carry; Legs day: dead bug, hinge drill and
     /// carry (research 05 §7).
     public static func coreB(levels: [String: Stage], workout: HeavyDuty.Workout) -> RestRoutine {
@@ -128,6 +131,21 @@ public struct BackCarePlan: TrainingPlan {
     public var title: String { BackCare.title }
     public var goals: [Goal] { [.mobility] }
     public var schedule: PlanSchedule { .rotation(minRestDays: 0, maxGapDays: 2) }
+    public var lastSession: Date? { log.map(\.date).max() }
+    public var intensity: SessionIntensity { .gentle }
+
+    /// The 2-minute floor (D221): one round of the Big 3, shorter holds.
+    public func sickFloor(now: Date, calendar: Calendar) -> PlanToday? {
+        if log.contains(where: { calendar.isDate($0.date, inSameDayAs: now) }) {
+            return PlanToday(planID: id, status: .done, headline: "Done for today", detail: "Rest counts too.")
+        }
+        let m = BackCare.floor(levels: levels).estimatedMinutes
+        return PlanToday(planID: id, status: .session, headline: "One round of the Big 3",
+                         detail: "Only if you feel like it · about \(m) min", minutes: m, works: [.core])
+    }
+
+    /// Back care is the anchor habit: it comes back as it was (research 12 §7.2).
+    public func wayBack(_ step: WayBackStep) -> String { "Carries on at your levels." }
 
     public let options: BackCareOptions
     public let log: [BackCareLog]

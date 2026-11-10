@@ -60,6 +60,47 @@ public protocol TrainingPlan: Sendable {
     var goals: [Goal] { get }
     var schedule: PlanSchedule { get }
     func today(now: Date, calendar: Calendar) -> PlanToday
+
+    // Sick days and the way back (D224, D233). Every one has a default below, so a plan that says
+    // nothing pauses while you're ill and picks up where it left off.
+
+    /// The last session done, for counting the days missed.
+    var lastSession: Date? { get }
+    /// The normal days between sessions; days past it count as missed.
+    var usualGapDays: Int { get }
+    /// When it comes back after an illness: gentle plans first, hard ones last.
+    var intensity: SessionIntensity { get }
+    /// The little that's offered on a sick day when the floor is on (D221); nil pauses the plan.
+    func sickFloor(now: Date, calendar: Calendar) -> PlanToday?
+    /// What a way-back step means for this plan, in words ("Week 2 again").
+    func wayBack(_ step: WayBackStep) -> String
+}
+
+public extension TrainingPlan {
+    var lastSession: Date? { nil }
+
+    var usualGapDays: Int {
+        switch schedule {
+        case .fixedWeeks(_, let perWeek): return max(1, 7 / max(1, perWeek))
+        case .rotation(let minRest, _): return max(1, minRest)
+        case .timetable: return 7
+        }
+    }
+
+    /// A plan that doesn't say is treated as hard, the safe side.
+    var intensity: SessionIntensity { .hard }
+
+    func sickFloor(now: Date, calendar: Calendar) -> PlanToday? { nil }
+
+    func wayBack(_ step: WayBackStep) -> String {
+        switch step {
+        case .carryOn: return "Carries on as planned."
+        case .repeatLast: return "The last session again."
+        case .repeatBlock: return "The last block again."
+        case .stepBack: return "One block back."
+        case .restart: return "From the start."
+        }
+    }
 }
 
 /// All active plans for one day (D67, D139).
@@ -67,8 +108,10 @@ public struct RegimenDay: Equatable, Sendable {
     /// One entry per plan, in the order the plans were given (the main goal's plan first).
     public let plans: [PlanToday]
 
-    public init(plans: [any TrainingPlan], now: Date, calendar: Calendar = .current) {
-        self.plans = plans.map { $0.today(now: now, calendar: calendar) }
+    public init(plans: [any TrainingPlan], now: Date, calendar: Calendar = .current, illness: IllnessContext? = nil) {
+        self.plans = plans.map { plan in
+            illness?.today(for: plan, now: now, calendar: calendar) ?? plan.today(now: now, calendar: calendar)
+        }
     }
 
     /// The first session due today and not on hold: what the Regimen card offers to start.
@@ -95,6 +138,19 @@ public struct C25KPlan: TrainingPlan {
     public var title: String { "C25K" }
     public var goals: [Goal] { [.cardio] }
     public var schedule: PlanSchedule { .fixedWeeks(weeks: C25K.weeks, perWeek: C25K.daysPerWeek) }
+    public var lastSession: Date? { lastRun }
+    public var intensity: SessionIntensity { .moderate }
+
+    public func wayBack(_ step: WayBackStep) -> String {
+        let label = nextSession.map { "Week \($0.week) · Day \($0.day)" } ?? "the last run"
+        switch step {
+        case .carryOn: return "Carries on: \(label)."
+        case .repeatLast: return "Your last run day again before \(label)."
+        case .repeatBlock: return "The week again, labelled 2nd time."
+        case .stepBack: return "One week back."
+        case .restart: return "Week 1 · Day 1 again."
+        }
+    }
 
     public let completed: Set<String>
     public let lastRun: Date?
