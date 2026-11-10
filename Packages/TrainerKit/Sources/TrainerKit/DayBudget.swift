@@ -73,3 +73,34 @@ public struct DayBudget: Equatable, Sendable {
         return "\(h) h \(m)"
     }
 }
+
+/// The morning time budget and the "When suits?" reminders (D229–D232). Decoded key by key.
+public struct MorningOptions: Codable, Equatable, Sendable {
+    public var enabled = true
+    /// Send it on rest days too (D232: on for this user).
+    public var restDays = true
+    /// If the strap's wake hasn't arrived by the usual wake time + this, it goes anyway (D229).
+    public var fallbackAfterUsualWake = 45
+    /// The time buttons, as minutes after midnight (07:00, 12:30, 18:30).
+    public var slots = [420, 750, 1110]
+    /// The reminder comes this many minutes before the chosen time (D231).
+    public var leadMinutes = 10
+    /// Pause after this many mornings in a row with no tap (research 12 §7.6).
+    public var pauseAfterIgnored = 3
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = MorningOptions()
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
+        restDays = try c.decodeIfPresent(Bool.self, forKey: .restDays) ?? d.restDays
+        fallbackAfterUsualWake = try c.decodeIfPresent(Int.self, forKey: .fallbackAfterUsualWake) ?? d.fallbackAfterUsualWake
+        slots = try c.decodeIfPresent([Int].self, forKey: .slots) ?? d.slots
+        leadMinutes = try c.decodeIfPresent(Int.self, forKey: .leadMinutes) ?? d.leadMinutes
+        pauseAfterIgnored = try c.decodeIfPresent(Int.self, forKey: .pauseAfterIgnored) ?? d.pauseAfterIgnored
+    }
+
+    /// "07:00" style label for a slot.
+    public static func label(_ minutes: Int) -> String { String(format: "%d:%02d", minutes / 60, minutes % 60) }
+}

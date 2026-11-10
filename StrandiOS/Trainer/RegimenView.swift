@@ -4,7 +4,7 @@ import TrainerKit
 
 /// Screens the Regimen links to, pushed as values so the tab's re-tap pops them (#198).
 enum RegimenRoute: Hashable {
-    case c25k, c25kHistory, heavyDuty, backCare, mobility, goals, places, health, time, sickDays
+    case c25k, c25kHistory, heavyDuty, backCare, mobility, goals, places, health, time, sickDays, reminders
 }
 
 /// The Regimen tab (D139): every active plan for today, under the goals they serve (D124). The goal
@@ -33,6 +33,11 @@ struct RegimenView: View {
                 DayBudgetBanner(budget: ActivePlans.budget())
                 IllnessCards(plans: plans)
                 if let flare = BackFlare.current(entries: runner.pain, now: Date()) { BackFlareCard(flare: flare) }
+                if ComebackStore.shared.firstSessionBackDone {
+                    Label("Done. That's the hardest one.", systemImage: "checkmark.seal.fill")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.statusPositive)
+                }
                 if sick.current == nil {
                     // On the way back, its card already says what today is.
                     if day.next != nil || sick.context() == nil { nextCard }
@@ -42,7 +47,11 @@ struct RegimenView: View {
                 setupSection
             }
         }
-        .onAppear { runner.applyRestartIfReady(); sick.applyWayBackIfDue() }
+        .onAppear {
+            runner.applyRestartIfReady()
+            sick.applyWayBackIfDue()
+            if ComebackStore.shared.options.enabled || MorningBudget.shared.options.enabled { TrainerNotifications.requestIfNeeded() }
+        }
         .task(id: session.savedSessions) { await heavyDuty.refresh(repo: repo) }
         .onAppear { backCare.updateWake(from: repo.sleeps) }
         .sheet(isPresented: $showUnwell) { UnwellSheet() }
@@ -59,6 +68,7 @@ struct RegimenView: View {
                 case .health: HealthProfileView()
                 case .time: DayBudgetSettingsView()
                 case .sickDays: SickDaySettingsView()
+                case .reminders: TrainerRemindersView()
                 }
             }
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
@@ -203,6 +213,8 @@ struct RegimenView: View {
                     SetupRow(title: "Time", detail: "Getting going at each place", icon: "clock", route: .time)
                     Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
                     SetupRow(title: "Sick days", detail: "What pauses, and the way back", icon: "thermometer.medium", route: .sickDays)
+                    Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
+                    SetupRow(title: "Reminders", detail: "Today's time each morning, and checking in", icon: "bell", route: .reminders)
                     Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
                     SetupRow(title: "C25K history", detail: "Change or delete any answer",
                              icon: "clock.arrow.circlepath", route: .c25kHistory)

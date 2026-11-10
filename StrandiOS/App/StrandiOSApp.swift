@@ -117,6 +117,13 @@ struct StrandiOSApp: App {
         LiftTempoCoach.shared.watch(liftSession)
         // Trainer: the strap's illness watch feeds sick days (D222).
         SickDayStore.shared.watch(model)
+        // Trainer: the morning time budget follows the strap's wake (D229); Trainer's notification
+        // buttons come back through the shared presenter.
+        MorningBudget.shared.watch(model)
+        TrainerNotifications.registerCategories(slots: MorningBudget.shared.options.slots)
+        NotificationPresenter.shared.onOtherResponse = { category, action in
+            MainActor.assumeIsolated { TrainerNotifications.handle(category: category, actionID: action) }
+        }
         let liftActivity = LiftLiveActivityController(log: { [weak model] line in
             model?.live.append(log: AppModel.stamped(line))
         })
@@ -224,6 +231,8 @@ struct StrandiOSApp: App {
     var body: some Scene {
         WindowGroup {
             iOSRootView()
+                // Trainer: "Welcome back" after a gap, over whatever tab is open (D227).
+                .modifier(ComebackPresenter())
                 .environmentObject(model)
                 .environmentObject(model.ble)   // #334: Today pull-to-sync reads BLEManager (no HR churn)
                 .environmentObject(model.live)
@@ -351,7 +360,15 @@ struct StrandiOSApp: App {
         // HealthKitBridge.sync guards on `auth == .authorized`, so the scenePhase trigger stays a
         // safe no-op until the user opts in.
         .onChange(of: scenePhase, initial: true) { _, phase in
+            // Trainer: going quiet is noticed from here (D226); the morning note's fallback is booked on
+            // the way out (D229).
+            if phase == .background {
+                ComebackStore.shared.appWentToBackground()
+                MorningBudget.shared.bookFallback()
+            }
             if phase == .active {
+                ComebackStore.shared.appBecameActive()
+                MorningBudget.shared.appBecameActive()
                 CoachBriefScheduler.activateIfEnabled { await model.coach.generateBrief() }
                 model.drainPendingIntents(router: router)
                 // iOS starts a Lift Log banner only for an app on screen, so a banner lost while NOOP was in
@@ -599,6 +616,8 @@ enum DemoScreens {
         case "mobilitytest": return AnyView(MobilityTestView(isBaseline: true, shinCleared: false) { _ in })
         case "sickdays": return AnyView(SickDaySettingsView())
         case "time":     return AnyView(DayBudgetSettingsView())
+        case "reminders": return AnyView(TrainerRemindersView())
+        case "comeback": return AnyView(ComebackSheet(gapDays: 4))
         case "sleep":    return AnyView(SleepView())
         case "live":     return AnyView(LiveView())
         case "stress":   return AnyView(StressView())

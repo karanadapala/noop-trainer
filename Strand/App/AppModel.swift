@@ -172,6 +172,9 @@ final class AppModel: ObservableObject {
     // publishes them here; AppModel exposes them so HealthView / InsightsHubView read a snapshot rather
     // than re-deriving. All opt-in / honest-nil , a nil result means "not enough data / not enabled".
     @Published var illnessSignal: IllnessSignalEngine.Result?
+    /// Fired when the strap reports its smart alarm went off: the moment you're up, for anything that
+    /// wants it (iOS Trainer's morning note). nil is a no-op.
+    var onSmartAlarmWake: (() -> Void)?
     /// Parallel Mahalanobis illness-distance read (IllnessDistance), computed on the SAME illness-ward
     /// z-vector as illnessSignal but NEVER gating the alert. The shipped IllnessSignalEngine stays the
     /// sole fire gate; this only surfaces a "how strong" confidence readout in the Heads-Up card when
@@ -314,6 +317,7 @@ final class AppModel: ObservableObject {
             // PR #577 (iOS): mirror the strap's wake buzz to a local notification so a phone-in-pocket
             // user still gets woken; no-op on macOS / when wrist alerts are off.
             AppModel.postSmartAlarm()
+            self.onSmartAlarmWake?()
             self.applySmartAlarm()
         }
         // Strap battery alerts (#368): low-battery warning + full-charge note. The notifier self-gates

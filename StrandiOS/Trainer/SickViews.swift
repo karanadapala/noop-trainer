@@ -12,6 +12,15 @@ struct UnwellSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Your plan for this")
+                            .font(StrandFont.caption.weight(.semibold))
+                            .foregroundStyle(StrandPalette.textTertiary)
+                        Text(ComebackStore.shared.copingPlan)
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("What is it? (optional)")
                             .font(StrandFont.headline)

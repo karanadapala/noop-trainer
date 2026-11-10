@@ -23,6 +23,10 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
     /// root has wired it.
     var onCoachBriefTapped: (() -> Void)?
 
+    /// Any other tap or notification button, as (category, action id), on the main queue. iOS Trainer
+    /// uses it for its own `trainer.*` notifications; nil is a no-op.
+    var onOtherResponse: ((String, String) -> Void)?
+
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
@@ -39,8 +43,12 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.notification.request.content.categoryIdentifier == CoachBriefScheduler.notificationCategoryId {
+        let category = response.notification.request.content.categoryIdentifier
+        if category == CoachBriefScheduler.notificationCategoryId {
             onCoachBriefTapped?()
+        } else if let onOtherResponse {
+            let action = response.actionIdentifier
+            DispatchQueue.main.async { onOtherResponse(category, action) }
         }
         completionHandler()
     }
