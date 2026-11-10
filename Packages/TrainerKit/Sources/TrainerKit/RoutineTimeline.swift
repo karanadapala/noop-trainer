@@ -90,7 +90,7 @@ public struct RoutineTimeline: Equatable, Sendable {
                     if let side { announce += announce.isEmpty ? side.capitalizingFirst : ", \(side)" }
                     announce += announce.isEmpty ? "\(count.capitalizingFirst)." : ". \(count)."
                     cues.append(Cue(at: w, text: announce, priority: .transition))
-                    cues += Self.workCues(dose.work(forSet: set), from: w + Double(Self.getReady))
+                    cues += Self.workCues(dose.work(forSet: set), from: w + Double(Self.getReady), names: Self.holdNames[ex.id])
 
                     let lastRound = set == dose.sets && sideIndex == sides.count - 1
                     if lastRound { continue }
@@ -153,7 +153,10 @@ public struct RoutineTimeline: Equatable, Sendable {
     /// The tempo: each rep's number on the way up and "down" for the 3-second lowering; for held reps
     /// "lift" and "relax"; for holds, a halfway mark and beeps into the end. The number is spelled out
     /// and ends its own sentence: "1, up." ran together into one word ("wup").
-    static func workCues(_ w: Dose.Work, from start: Double) -> [Cue] {
+    /// Held reps that each have a name, said instead of counting (the neck's four directions, D216).
+    static let holdNames: [String: [String]] = ["neckHolds": ["Forward", "Back", "Left", "Right"]]
+
+    static func workCues(_ w: Dose.Work, from start: Double, names: [String]? = nil) -> [Cue] {
         switch w {
         case .reps(let n):
             return (0..<n).flatMap { k -> [Cue] in
@@ -164,6 +167,10 @@ public struct RoutineTimeline: Equatable, Sendable {
         case .heldReps(let n, let hold):
             return (0..<n).flatMap { k -> [Cue] in
                 let at = start + Double(k * (hold + 2))
+                if let names, names.indices.contains(k) {
+                    return [Cue(at: at, text: "\(names[k]). Push.", priority: .status),
+                            Cue(at: at + Double(hold), text: "Relax.", priority: .status)]
+                }
                 return [Cue(at: at, text: k == n - 1 ? "Last one. Lift." : "\(Self.spelled(k + 1)). Lift.", priority: .status),
                         Cue(at: at + Double(hold), text: "Relax.", priority: .status)]
             }

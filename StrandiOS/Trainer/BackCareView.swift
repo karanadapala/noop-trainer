@@ -245,6 +245,11 @@ struct BackCareView: View {
                     }
                     Toggle(isOn: $store.options.warmUpBeforeLifting) { setting("A short set before lifting", nil) }
                         .tint(StrandPalette.accent)
+                    Toggle(isOn: $store.options.neckHolds) { setting("Neck holds after Upper day", nil) }
+                        .tint(StrandPalette.accent)
+                    Stepper(value: $store.options.neckWeeksPerLevel, in: 1...6) {
+                        setting("Neck holds: weeks per level", "\(store.options.neckWeeksPerLevel)")
+                    }
                     Stepper(value: $store.options.easySessionsToLevelUp, in: 3...10) {
                         setting("Easy sessions before the next level", "\(store.options.easySessionsToLevelUp)")
                     }

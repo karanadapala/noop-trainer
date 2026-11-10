@@ -119,4 +119,23 @@ final class BackCareTests: XCTestCase {
                               liftToday: .upper, liftDone: true, wake: nil, flare: true)
         XCTAssertEqual(bc.next(now: at(4, 18), calendar: cal), .coreA)
     }
+
+    func testNeckHoldsComeAfterUpperDayAndBuildUpOverFourWeeks() {
+        let cal = Calendar(identifier: .gregorian)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let upper = BackCare.coreB(levels: [:], workout: .upper, neck: .learn)
+        XCTAssertEqual(upper.items.last?.exercise.id, "neckHolds")
+        let said = RoutineTimeline(upper).cues.map(\.text)
+        XCTAssertTrue(said.contains("Forward. Push.") && said.contains("Right. Push."), "the voice names each direction")
+        XCTAssertFalse(BackCare.coreB(levels: [:], workout: .legs, neck: .learn).items.contains { $0.exercise.id == "neckHolds" })
+        XCTAssertFalse(BackCare.coreB(levels: [:], workout: .upper).items.contains { $0.exercise.id == "neckHolds" })
+        func stage(_ days: Int) -> Stage {
+            BackCare.neckStage(firstSession: start, now: start.addingTimeInterval(TimeInterval(days * 86400)), weeksPerLevel: 2, calendar: cal)
+        }
+        XCTAssertEqual(stage(0), .learn)
+        XCTAssertEqual(stage(14), .build)
+        XCTAssertEqual(stage(28), .strengthen)
+        XCTAssertEqual(stage(90), .strengthen)
+        XCTAssertEqual(BackCare.neckStage(firstSession: nil, now: start, weeksPerLevel: 2), .learn)
+    }
 }

@@ -58,6 +58,22 @@ public enum BackCare {
                   .strengthen: Dose(sets: 2, .reps(10), variant: "Light cable pull-through")]),
     ]
 
+    /// Neck holds (D216): a stronger neck without neck bridges. Four directions, short holds, no bending
+    /// under load (research 11 §6: expert opinion).
+    public static let neck = Exercise("neckHolds", "Neck holds", .core,
+        howTo: "Sit or stand tall, chin level. Push your head into your hand (or a band): forward, back, left, right, 10 seconds each. The head doesn't move.",
+        link: nil, loads: [],
+        [.learn: Dose(sets: 2, .heldReps(4, holdSeconds: 10), variant: "Into your hand, about a third of your strength"),
+         .build: Dose(sets: 3, .heldReps(4, holdSeconds: 10), variant: "Into your hand, about half your strength"),
+         .strengthen: Dose(sets: 3, .heldReps(4, holdSeconds: 10), variant: "Into a band, firm but never straining")])
+
+    /// The neck's level: up one every `weeksPerLevel` since the first time (built up over 4 weeks).
+    public static func neckStage(firstSession: Date?, now: Date, weeksPerLevel: Int, calendar: Calendar = .current) -> Stage {
+        guard let first = firstSession else { return .learn }
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: first), to: calendar.startOfDay(for: now)).day ?? 0
+        return Stage(rawValue: min(Stage.strengthen.rawValue, Stage.learn.rawValue + days / max(1, weeksPerLevel * 7))) ?? .learn
+    }
+
     public static var all: [Exercise] { coreA + coreB }
 
     /// Core A at today's levels. `warmUp`: the first descending set of each, before lifting (D99).
@@ -74,10 +90,12 @@ public enum BackCare {
 
     /// Core B after the lifts. Upper day: Pallof press and carry; Legs day: dead bug, hinge drill and
     /// carry (research 05 §7).
-    public static func coreB(levels: [String: Stage], workout: HeavyDuty.Workout) -> RestRoutine {
+    /// `neck`: neck holds at this level after Upper day (D216); nil leaves them out.
+    public static func coreB(levels: [String: Stage], workout: HeavyDuty.Workout, neck: Stage? = nil) -> RestRoutine {
         let ids = workout == .upper ? ["pallof", "suitcaseCarry"] : ["deadBug", "hingeDrill", "suitcaseCarry"]
-        let items = ids.compactMap { id in coreB.first { $0.id == id } }
+        var items = ids.compactMap { id in coreB.first { $0.id == id } }
             .map { RoutineItem(exercise: $0, dose: $0.dose(levels[$0.id] ?? .learn)) }
+        if workout == .upper, let neck { items.append(RoutineItem(exercise: Self.neck, dose: Self.neck.dose(neck))) }
         return RestRoutine(variant: .coreB, walkMinutes: 0, items: items, skippedAreas: [], focusAreas: [], stages: [:])
     }
 
@@ -120,8 +138,23 @@ public struct BackCareOptions: Codable, Equatable, Sendable {
     public var levelUpDays = 7
     /// A short Big 3 set before lifting (D99).
     public var warmUpBeforeLifting = true
+    /// Neck holds after Upper day (D216), one level up every this many weeks.
+    public var neckHolds = true
+    public var neckWeeksPerLevel = 2
 
     public init() {}
+
+    /// Decoded key by key, so stored settings survive a new setting being added.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = BackCareOptions()
+        minutesAfterWaking = try c.decodeIfPresent(Int.self, forKey: .minutesAfterWaking) ?? d.minutesAfterWaking
+        easySessionsToLevelUp = try c.decodeIfPresent(Int.self, forKey: .easySessionsToLevelUp) ?? d.easySessionsToLevelUp
+        levelUpDays = try c.decodeIfPresent(Int.self, forKey: .levelUpDays) ?? d.levelUpDays
+        warmUpBeforeLifting = try c.decodeIfPresent(Bool.self, forKey: .warmUpBeforeLifting) ?? d.warmUpBeforeLifting
+        neckHolds = try c.decodeIfPresent(Bool.self, forKey: .neckHolds) ?? d.neckHolds
+        neckWeeksPerLevel = try c.decodeIfPresent(Int.self, forKey: .neckWeeksPerLevel) ?? d.neckWeeksPerLevel
+    }
 }
 
 /// Back care on the plan layer (D98). Core A every day it isn't done; on a lifting day a warm-up set
@@ -143,6 +176,13 @@ public struct BackCarePlan: TrainingPlan {
         let m = BackCare.floor(levels: levels).estimatedMinutes
         return PlanToday(planID: id, status: .session, headline: "One round of the Big 3",
                          detail: "Only if you feel like it · about \(m) min", minutes: m, works: [.core])
+    }
+
+    /// Today's neck level, or nil when neck holds are off.
+    public func neckStage(now: Date, calendar: Calendar = .current) -> Stage? {
+        guard options.neckHolds else { return nil }
+        let first = log.filter { $0.session == .coreB }.map(\.date).min()
+        return BackCare.neckStage(firstSession: first, now: now, weeksPerLevel: options.neckWeeksPerLevel, calendar: calendar)
     }
 
     /// Back care is the anchor habit: it comes back as it was (research 12 §7.2).
@@ -215,12 +255,12 @@ public struct BackCarePlan: TrainingPlan {
         case .warmUp(let w):
             // Today's time counts both: the warm-up now and Core B after the lifts.
             let warm = BackCare.coreA(levels: levels, warmUp: true).estimatedMinutes
-            let b = BackCare.coreB(levels: levels, workout: w).estimatedMinutes
+            let b = BackCare.coreB(levels: levels, workout: w, neck: neckStage(now: now, calendar: calendar)).estimatedMinutes
             return PlanToday(planID: id, status: .session, headline: "Warm-up before \(w.title)",
                              detail: "One short Big 3 set each (about \(warm) min), then Core B after the lifts (about \(b) min)",
                              minutes: warm + b, works: [.core])
         case .coreB(let w):
-            let m = BackCare.coreB(levels: levels, workout: w).estimatedMinutes
+            let m = BackCare.coreB(levels: levels, workout: w, neck: neckStage(now: now, calendar: calendar)).estimatedMinutes
             return PlanToday(planID: id, status: .session, headline: "Core B",
                              detail: "After the lifts · about \(m) min", minutes: m, works: [.core])
         case .later(let from):

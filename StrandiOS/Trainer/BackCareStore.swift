@@ -59,7 +59,7 @@ final class BackCareStore: ObservableObject {
         switch next {
         case .coreA: return BackCare.coreA(levels: levels)
         case .warmUp: return BackCare.coreA(levels: levels, warmUp: true)
-        case .coreB(let w): return BackCare.coreB(levels: levels, workout: w)
+        case .coreB(let w): return BackCare.coreB(levels: levels, workout: w, neck: plan().neckStage(now: Date()))
         case .later, .done: return nil
         }
     }
