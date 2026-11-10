@@ -116,6 +116,13 @@ final class SickDaysTests: XCTestCase {
         XCTAssertEqual(later.plans.map(\.status), [.session, .session, .session], "a plan that says nothing counts as hard")
     }
 
+    func testAnEasyDayHoldsAllButGentlePlans() {
+        let plans: [any TrainingPlan] = [Plan(id: "back", level: .gentle), Plan(id: "run", level: .moderate), Bare()]
+        let r = RegimenDay(plans: plans, now: day(4), calendar: cal, easyDay: true)
+        XCTAssertEqual(r.plans.map(\.status), [.session, .hold, .hold])
+        XCTAssertEqual(r.plans[1].headline, "Easy day")
+    }
+
     func testRedFlagsAndEndingSickMode() {
         let o = SickDayOptions()
         var e = SickEpisode(start: day(1), kind: .fever)

@@ -7,13 +7,16 @@ public enum IllnessKind: String, CaseIterable, Codable, Sendable {
 
     public var label: String {
         switch self {
-        case .cold: return "Cold (nose and throat only)"
-        case .fever: return "Fever, flu or aches"
+        case .cold: return "Cold"
+        case .fever: return "Fever or flu"
         case .stomach: return "Stomach bug"
         case .covid: return "COVID-19"
         case .notSure: return "Not sure"
         }
     }
+
+    /// One line under the choices, so the short labels stay short.
+    public static let hint = "Cold: nose and throat only. Fever or flu: also chills or body aches."
 
     /// Whole-body illness: rest while it lasts, and easy days before the way back (research 12 §1).
     public var feverType: Bool { self != .cold }

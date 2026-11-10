@@ -292,13 +292,12 @@ struct ChoiceChips<Option: Hashable>: View {
     let label: KeyPath<Option, String>
     let selected: Option?
     var tint: Color = StrandPalette.accent
+    /// The unselected fill; on an inset panel, pass a colour that stands out from it.
+    var fill: Color = StrandPalette.surfaceInset
     let onSelect: (Option) -> Void
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) { chips }
-            VStack(alignment: .leading, spacing: 8) { chips }
-        }
+        WrapLayout(spacing: 8) { chips }
     }
 
     @ViewBuilder private var chips: some View {
@@ -310,12 +309,55 @@ struct ChoiceChips<Option: Hashable>: View {
                     .foregroundStyle(isOn ? StrandPalette.textPrimary : StrandPalette.textSecondary)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Capsule().fill(isOn ? tint.opacity(0.28) : StrandPalette.surfaceInset))
+                    .background(Capsule().fill(isOn ? tint.opacity(0.28) : fill))
                     .overlay(Capsule().stroke(isOn ? tint : .clear, lineWidth: 1))
             }
             .buttonStyle(.plain)
             .accessibilityAddTraits(isOn ? .isSelected : [])
         }
+    }
+}
+
+/// Lays children out left to right, wrapping onto new lines, so a row of chips never turns into a column.
+struct WrapLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(subviews, width: proposal.width ?? .infinity)
+        let width = rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: proposal.width ?? width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(subviews, width: bounds.width) {
+            var x = bounds.minX
+            for i in row.indices {
+                let size = subviews[i].sizeThatFits(.unspecified)
+                subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row { var indices: [Int] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows = [Row()]
+        for i in subviews.indices {
+            let size = subviews[i].sizeThatFits(.unspecified)
+            let extra = rows[rows.count - 1].indices.isEmpty ? size.width : size.width + spacing
+            if rows[rows.count - 1].width + extra > width, !rows[rows.count - 1].indices.isEmpty {
+                rows.append(Row())
+            }
+            let gap = rows[rows.count - 1].indices.isEmpty ? 0 : spacing
+            rows[rows.count - 1].indices.append(i)
+            rows[rows.count - 1].width += size.width + gap
+            rows[rows.count - 1].height = max(rows[rows.count - 1].height, size.height)
+        }
+        return rows
     }
 }
 

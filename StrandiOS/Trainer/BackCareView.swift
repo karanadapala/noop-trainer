@@ -21,6 +21,7 @@ struct BackCareView: View {
     var body: some View {
         ScreenScaffold(title: "Back care", subtitle: "McGill's Big 3 most days, and core work after lifting. Never to failure.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                SickPauseBanner(planID: BackCare.planID)
                 if let flare = BackFlare.current(entries: runner.pain, now: Date()) { BackFlareCard(flare: flare) }
                 if store.enabled {
                     todayCard

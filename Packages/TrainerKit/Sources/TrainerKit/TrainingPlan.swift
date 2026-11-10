@@ -108,9 +108,15 @@ public struct RegimenDay: Equatable, Sendable {
     /// One entry per plan, in the order the plans were given (the main goal's plan first).
     public let plans: [PlanToday]
 
-    public init(plans: [any TrainingPlan], now: Date, calendar: Calendar = .current, illness: IllnessContext? = nil) {
+    /// `easyDay`: the strap thinks you may be fighting something, or you said "A bit off" (D222): only
+    /// gentle plans run today.
+    public init(plans: [any TrainingPlan], now: Date, calendar: Calendar = .current, illness: IllnessContext? = nil,
+                easyDay: Bool = false) {
         self.plans = plans.map { plan in
-            illness?.today(for: plan, now: now, calendar: calendar) ?? plan.today(now: now, calendar: calendar)
+            let today = illness?.today(for: plan, now: now, calendar: calendar) ?? plan.today(now: now, calendar: calendar)
+            guard easyDay, plan.intensity > .gentle, today.status == .session else { return today }
+            return PlanToday(planID: plan.id, status: .hold, headline: "Easy day",
+                             detail: "Only gentle sessions today: a walk, back care, mobility.")
         }
     }
 

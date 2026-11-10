@@ -22,6 +22,7 @@ struct MobilityView: View {
     var body: some View {
         ScreenScaffold(title: "Mobility", subtitle: "Range back for the hips, hamstrings and back, one small step a week.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                SickPauseBanner(planID: Mobility.planID)
                 if let flare = BackFlare.current(entries: runner.pain, now: Date()) { BackFlareCard(flare: flare) }
                 if store.enabled {
                     phaseStrip

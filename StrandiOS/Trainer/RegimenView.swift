@@ -18,17 +18,24 @@ struct RegimenView: View {
     @ObservedObject private var heavyDuty = HeavyDutyStore.shared
     @ObservedObject private var backCare = BackCareStore.shared
     @ObservedObject private var mobility = MobilityStore.shared
+    @ObservedObject private var sick = SickDayStore.shared
+    @State private var showUnwell = false
 
     /// The active plans, the main goal's plan first (D86: it wins a clash).
     private var plans: [any TrainingPlan] { ActivePlans.all() }
-    private var day: RegimenDay { RegimenDay(plans: plans, now: Date()) }
+    private var day: RegimenDay { ActivePlans.day() }
 
     var body: some View {
         ScreenScaffold(title: "Regimen", subtitle: "Every plan, one day at a time.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 GoalRail(goals: Goal.shown(chosen: store.goals, plans: plans), plans: plans, day: day)
+                IllnessCards(plans: plans)
                 if let flare = BackFlare.current(entries: runner.pain, now: Date()) { BackFlareCard(flare: flare) }
-                nextCard
+                if sick.current == nil {
+                    // On the way back, its card already says what today is.
+                    if day.next != nil || sick.context() == nil { nextCard }
+                    unwellButton
+                }
                 plansSection
                 setupSection
             }
@@ -36,6 +43,7 @@ struct RegimenView: View {
         .onAppear { runner.applyRestartIfReady() }
         .task(id: session.savedSessions) { await heavyDuty.refresh(repo: repo) }
         .onAppear { backCare.updateWake(from: repo.sleeps) }
+        .sheet(isPresented: $showUnwell) { UnwellSheet() }
         .navigationDestination(for: RegimenRoute.self) { route in
             Group {
                 switch route {
@@ -118,6 +126,17 @@ struct RegimenView: View {
                 }
             }
         }
+    }
+
+    /// "I'm unwell" (D219): always one tap away, never in the way.
+    private var unwellButton: some View {
+        Button { showUnwell = true } label: {
+            Label("I'm unwell", systemImage: "thermometer.medium")
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(StrandPalette.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 4)
     }
 
     private func route(for planID: String) -> RegimenRoute {
@@ -360,11 +379,12 @@ struct RegimenTodayCard: View {
     @ObservedObject private var heavyDuty = HeavyDutyStore.shared
     @ObservedObject private var backCare = BackCareStore.shared
     @ObservedObject private var mobility = MobilityStore.shared
+    @ObservedObject private var sick = SickDayStore.shared
 
     private var plans: [any TrainingPlan] { ActivePlans.all() }
 
     var body: some View {
-        let day = RegimenDay(plans: plans, now: Date())
+        let day = ActivePlans.day()
         let held = day.plans.first { $0.status == .hold }
         let shown = day.next ?? held
         let plan = shown.flatMap { s in plans.first { $0.id == s.planID } }

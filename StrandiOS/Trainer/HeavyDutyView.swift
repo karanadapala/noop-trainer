@@ -28,6 +28,7 @@ struct HeavyDutyView: View {
         ScreenScaffold(title: "Heavy Duty", subtitle: "Mike Mentzer's method: one hard set per exercise, then rest.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 if store.enabled {
+                    SickPauseBanner(planID: HeavyDuty.planID)
                     todayCard
                     workoutCard
                     settingsSection

@@ -48,6 +48,7 @@ struct C25KView: View {
     var body: some View {
         ScreenScaffold(title: "C25K Coach", subtitle: "Couch to 5K in nine weeks, coached by voice.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                SickPauseBanner(planID: C25KPlan.planID)
                 statusRow
                 switch runner.state {
                 case .running, .paused:
