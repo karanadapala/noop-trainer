@@ -24,6 +24,11 @@ final class HeavyDutyStore: ObservableObject {
     @Published private(set) var skipped: Date? { didSet { UserDefaults.standard.set(skipped, forKey: Self.skippedKey) } }
     /// Each exercise's working sets, oldest first, one per session, weights in kg.
     @Published private(set) var history: [String: [LiftResult]] = [:]
+    /// Every Heavy Duty session's date, from the Lift Log.
+    @Published private(set) var sessionDates: [Date] = []
+    /// The way back after a break (D224).
+    @Published private(set) var wayBack: WayBackRecord? { didSet { Self.save(wayBack, Self.wayBackKey) } }
+    @Published var wayBackOptions: HeavyDutyWayBack { didSet { Self.save(wayBackOptions, Self.wayBackOptionsKey) } }
 
     private static let enabledKey = "trainer.heavyduty.enabled"
     private static let placeKey = "trainer.heavyduty.place"
@@ -31,6 +36,8 @@ final class HeavyDutyStore: ObservableObject {
     private static let lastKey = "trainer.heavyduty.last"
     private static let firstKey = "trainer.heavyduty.first"
     private static let skippedKey = "trainer.heavyduty.skipped"
+    private static let wayBackKey = "trainer.heavyduty.wayBack"
+    private static let wayBackOptionsKey = "trainer.heavyduty.wayBackOptions"
 
     private init() {
         let d = UserDefaults.standard
@@ -40,6 +47,13 @@ final class HeavyDutyStore: ObservableObject {
         last = Self.decode([HeavyDuty.Workout: Date].self, Self.lastKey) ?? [:]
         firstSession = d.object(forKey: Self.firstKey) as? Date
         skipped = d.object(forKey: Self.skippedKey) as? Date
+        wayBack = Self.decode(WayBackRecord.self, Self.wayBackKey)
+        wayBackOptions = Self.decode(HeavyDutyWayBack.self, Self.wayBackOptionsKey) ?? HeavyDutyWayBack()
+    }
+
+    private var sessionsSinceWayBack: Int {
+        guard let from = wayBack?.from else { return 0 }
+        return sessionDates.filter { $0 >= from }.count
     }
 
     var skippedToday: Bool { skipped.map(Calendar.current.isDateInToday) ?? false }
@@ -66,7 +80,9 @@ final class HeavyDutyStore: ObservableObject {
         return HeavyDutyPlan(options: options, last: last, firstSession: firstSession, nextRun: nextRun,
                              ranToday: ranToday, c25kFinished: finished,
                              legHolds: runner.painState.holds.map(\.reason), skipped: skipped,
-                             liftHolds: runner.painState.holds.filter { $0.area == .back }.map(\.reason), place: placeID)
+                             liftHolds: runner.painState.holds.filter { $0.area == .back }.map(\.reason),
+                             wayBackOptions: wayBackOptions, place: placeID, wayBack: wayBack,
+                             sessionsSinceWayBack: sessionsSinceWayBack)
     }
 
     /// Today's workout for the plans that fit around lifting (Back care, Mobility): done today, or due.
@@ -79,13 +95,16 @@ final class HeavyDutyStore: ObservableObject {
     func place(_ regimen: RegimenStore) -> Place? { regimen.place(id: placeID) ?? regimen.places.first }
 
     /// Today's weight for one exercise at a place, in the place's unit.
-    func suggestion(_ exercise: HeavyDuty.Exercise, at place: Place?) -> WeightSuggestion {
+    /// After a restart, earlier sets don't count: each weight is found again (D224).
+    func suggestion(_ exercise: HeavyDuty.Exercise, at place: Place?, runner: C25KRunner = .shared) -> WeightSuggestion {
         let unit = place?.unit ?? .kg
-        let inUnit = (history[exercise.name] ?? []).map {
+        let cutoff = wayBack.flatMap { $0.step == .restart ? $0.from : nil }
+        let inUnit = (history[exercise.name] ?? []).filter { cutoff.map($0.date.compare) != .orderedAscending }.map {
             LiftResult(date: $0.date, weight: $0.weight.map { Self.fromKg($0, unit) }, reps: $0.reps)
         }
-        return WeightSuggestion.next(history: inUnit, reps: options.reps(exercise.workout),
-                                     kit: place?.equipment(exercise.kit), options: options)
+        let kit = place?.equipment(exercise.kit)
+        let s = WeightSuggestion.next(history: inUnit, reps: options.reps(exercise.workout), kit: kit, options: options)
+        return plan(runner: runner).wayBackLighter.map { s.wayBack(lighterPercent: $0, kit: kit) } ?? s
     }
 
     // MARK: Starting a session
@@ -99,8 +118,7 @@ final class HeavyDutyStore: ObservableObject {
             return false
         }
         let unit = place?.unit ?? .kg
-        let effort = LiftEffort.on(Date(), firstSession: firstSession, c25kFinished: runner.plan.nextSession == nil,
-                                   options: options)
+        let effort = plan(runner: runner).effort(now: Date())
         let list = HeavyDuty.exercises(workout, c25kFinished: runner.plan.nextSession == nil)
             .filter { place?.has($0.kit) ?? true }
         guard !list.isEmpty else { return false }
@@ -166,11 +184,17 @@ final class HeavyDutyStore: ObservableObject {
             }
         }
         history = results
+        sessionDates = sessions.map { Date(timeIntervalSince1970: TimeInterval($0.startTs)) }
         last = lastDates
         firstSession = sessions.first.map { Date(timeIntervalSince1970: TimeInterval($0.startTs)) }
     }
 
     // MARK: Units and storage
+
+    private static func save<T: Encodable>(_ value: T?, _ key: String) {
+        guard let value else { UserDefaults.standard.removeObject(forKey: key); return }
+        save(value, key)
+    }
 
     static func fromKg(_ kg: Double, _ unit: WeightUnit) -> Double {
         unit == .lb ? kg * UnitFormatter.poundsPerKilogram : kg
@@ -199,5 +223,12 @@ enum ActivePlans {
         if backCare.enabled { plans.append(backCare.plan(heavyDuty: heavyDuty, runner: runner)) }
         if MobilityStore.shared.enabled { plans.append(MobilityStore.shared.plan(heavyDuty: heavyDuty, runner: runner)) }
         return plans
+    }
+}
+
+extension HeavyDutyStore: WayBackApplying {
+    /// Lighter sessions, or the break-in again; "carry on" clears any earlier way back.
+    func applyWayBack(_ record: WayBackRecord) {
+        wayBack = record.step == .carryOn ? nil : record
     }
 }

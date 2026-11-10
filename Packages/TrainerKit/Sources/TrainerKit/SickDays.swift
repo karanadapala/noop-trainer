@@ -132,6 +132,18 @@ public enum WayBackStep: String, CaseIterable, Codable, Sendable {
     case restart
 }
 
+/// A way back put in place for one plan, from the day it came back (D224). The app stores it; the plan
+/// reads it.
+public struct WayBackRecord: Codable, Equatable, Sendable {
+    public let step: WayBackStep
+    public let from: Date
+
+    public init(step: WayBackStep, from: Date) {
+        self.step = step
+        self.from = from
+    }
+}
+
 public struct WayBackBand: Codable, Equatable, Sendable {
     /// The most days missed this band covers; nil for "anything longer".
     public var upToDays: Int?
@@ -223,6 +235,20 @@ public enum SickDays {
         // Day 0 is walk-only; gentle plans join on day 1; moderate ones after the easy days.
         return [.gentle: plus(min(1, easy)), .moderate: plus(easy),
                 .hard: plus(long ? max(easy, options.hardWaitDays - 1) : easy)]
+    }
+
+    /// The plans whose way back starts by `now` and hasn't been put in place yet, each with its step,
+    /// counted on the day it comes back. Applied once per plan per illness.
+    public static func dueWayBacks(after episode: SickEpisode, plans: [any TrainingPlan], applied: Set<String>,
+                                   now: Date, options: SickDayOptions,
+                                   calendar: Calendar = .current) -> [(planID: String, record: WayBackRecord)] {
+        let resumes = resumes(after: episode, options: options, calendar: calendar)
+        return plans.compactMap { plan in
+            guard !applied.contains(plan.id), let from = resumes[plan.intensity],
+                  from <= calendar.startOfDay(for: now) else { return nil }
+            let missed = daysMissed(plan: plan, episode: episode, now: from, calendar: calendar)
+            return (plan.id, WayBackRecord(step: step(daysMissed: missed, options: options), from: from))
+        }
     }
 
     /// Fever-type: the first easy day is a walk only.

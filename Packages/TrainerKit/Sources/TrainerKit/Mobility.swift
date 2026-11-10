@@ -12,13 +12,11 @@ public enum Mobility {
     public enum Phase: Int, CaseIterable, Codable, Sendable {
         case gentle = 1, fuller, strength, maintain
 
+        /// Weeks in each phase before "keeping it".
+        public static let weeks = 4
+
         public static func of(week: Int) -> Phase {
-            switch week {
-            case ...4: return .gentle
-            case 5...8: return .fuller
-            case 9...12: return .strength
-            default: return .maintain
-            }
+            Phase(rawValue: min(Phase.maintain.rawValue, (max(1, week) - 1) / weeks + 1)) ?? .maintain
         }
 
         public var label: String {

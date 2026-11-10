@@ -133,6 +133,19 @@ public struct HeavyDutyWayBack: Codable, Equatable, Sendable {
     public var blockLighterPercent = 12.5
 
     public init() {}
+
+    /// The n-th session (0 = the first) after coming back: how much lighter and how many reps short of
+    /// failure; nil once the way back is over. Stepping back or restarting goes through the break-in instead.
+    public func adjustment(_ step: WayBackStep, sessionsSince n: Int) -> (lighterPercent: Double, repsShort: Int)? {
+        switch step {
+        case .repeatLast: return n == 0 ? (firstLighterPercent, repsShort) : nil
+        case .repeatBlock:
+            if n == 0 { return (blockLighterPercent, repsShort) }
+            if n == 1 { return (firstLighterPercent / 2, repsShort) }
+            return nil
+        case .carryOn, .stepBack, .restart: return nil
+        }
+    }
 }
 
 /// Every Heavy Duty setting the user can change (D97, D108). Defaults follow D75 and research 04 §6.
@@ -194,6 +207,8 @@ public struct HeavyDutyOptions: Codable, Equatable, Sendable {
 /// How hard the working set goes today (D93).
 public enum LiftEffort: Equatable, Sendable {
     case breakIn, shortOfFailure, toFailure
+    /// Back after a break (D224): this many reps short of failure.
+    case wayBack(repsShort: Int)
 
     public static func on(_ now: Date, firstSession: Date?, c25kFinished: Bool, options: HeavyDutyOptions,
                           calendar: Calendar = .current) -> LiftEffort {
@@ -210,6 +225,7 @@ public enum LiftEffort: Equatable, Sendable {
         case .breakIn: return "Break-in"
         case .shortOfFailure: return "1–2 reps short of failure"
         case .toFailure: return "To failure"
+        case .wayBack(let n): return "Back after a break: \(n) reps short of failure"
         }
     }
 
@@ -218,6 +234,7 @@ public enum LiftEffort: Equatable, Sendable {
         case .breakIn: return "Learn the lifts: slow, clean reps, stopping while 2–3 more would still be easy."
         case .shortOfFailure: return "Stop when you could do 1–2 more. Failure sets wait until C25K is done."
         case .toFailure: return "One set to the rep you can't finish, in good form."
+        case .wayBack(let n): return "A little lighter than before, stopping when you could do \(n) more. Full effort comes back after this."
         }
     }
 }
@@ -257,6 +274,8 @@ public struct WeightSuggestion: Equatable, Sendable {
         case reset
         /// Last time it didn't move: a step lighter.
         case lighter
+        /// Back after a break (D224): this much lighter than the plan would have said.
+        case wayBack(percent: Double)
     }
 
     public let kind: Kind
@@ -285,7 +304,16 @@ public struct WeightSuggestion: Equatable, Sendable {
             return "Stalled again: about 10% lighter, then build back up."
         case .lighter:
             return "It didn't move last time: a step lighter today."
+        case .wayBack(let p):
+            return "Back after a break: about \(p.formatted(.number.precision(.fractionLength(0...1))))% lighter today."
         }
+    }
+
+    /// The same suggestion, lighter for the way back (D224). A weight still to find stays as it is.
+    public func wayBack(lighterPercent p: Double, kit: Equipment?) -> WeightSuggestion {
+        guard let w = weight, kind != .findIt, p > 0 else { return self }
+        return WeightSuggestion(kind: .wayBack(percent: p), weight: Self.lighterWeight(than: w, target: w * (1 - p / 100), kit: kit),
+                                expectReps: nil, reps: reps)
     }
 
     /// - Parameters:
@@ -387,6 +415,23 @@ public struct HeavyDutyPlan: TrainingPlan {
     public var intensity: SessionIntensity { .hard }
     public var placeID: String? { place }
 
+    /// How much lighter today's session is for the way back, if at all.
+    public var wayBackLighter: Double? {
+        wayBack.flatMap { wayBackOptions.adjustment($0.step, sessionsSince: sessionsSinceWayBack)?.lighterPercent }
+    }
+
+    /// Today's effort: the way back first, then the break-in (again, after stepping back or restarting),
+    /// then the usual rule.
+    public func effort(now: Date, calendar: Calendar = .current) -> LiftEffort {
+        if let wb = wayBack {
+            if let a = wayBackOptions.adjustment(wb.step, sessionsSince: sessionsSinceWayBack) { return .wayBack(repsShort: a.repsShort) }
+            if wb.step == .stepBack || wb.step == .restart,
+               let end = calendar.date(byAdding: .day, value: options.breakInWeeks * 7, to: calendar.startOfDay(for: wb.from)),
+               now < end { return .breakIn }
+        }
+        return LiftEffort.on(now, firstSession: firstSession, c25kFinished: c25kFinished, options: options, calendar: calendar)
+    }
+
     public func wayBack(_ step: WayBackStep) -> String {
         let w = wayBackOptions
         func pct(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(0...1))) + "%" }
@@ -414,10 +459,16 @@ public struct HeavyDutyPlan: TrainingPlan {
     public let liftHolds: [String]
     public let wayBackOptions: HeavyDutyWayBack
     public let place: String?
+    /// The way back after a break, and how many sessions have been done since it began.
+    public let wayBack: WayBackRecord?
+    public let sessionsSinceWayBack: Int
 
     public init(options: HeavyDutyOptions, last: [HeavyDuty.Workout: Date], firstSession: Date?, nextRun: Date?,
                 ranToday: Bool, c25kFinished: Bool, legHolds: [String] = [], skipped: Date? = nil,
-                liftHolds: [String] = [], wayBackOptions: HeavyDutyWayBack = HeavyDutyWayBack(), place: String? = nil) {
+                liftHolds: [String] = [], wayBackOptions: HeavyDutyWayBack = HeavyDutyWayBack(), place: String? = nil,
+                wayBack: WayBackRecord? = nil, sessionsSinceWayBack: Int = 0) {
+        self.wayBack = wayBack
+        self.sessionsSinceWayBack = sessionsSinceWayBack
         self.place = place
         self.wayBackOptions = wayBackOptions
         self.skipped = skipped
@@ -468,8 +519,7 @@ public struct HeavyDutyPlan: TrainingPlan {
         guard let workout = due(now: now, calendar: calendar) else {
             return PlanToday(planID: id, status: .rest, headline: "Rest day", detail: restReason(now: now, calendar: calendar))
         }
-        let effort = LiftEffort.on(now, firstSession: firstSession, c25kFinished: c25kFinished, options: options,
-                                   calendar: calendar)
+        let effort = effort(now: now, calendar: calendar)
         let count = HeavyDuty.exercises(workout, c25kFinished: c25kFinished).count
         let minutes = options.minutes(exercises: count)
         return PlanToday(planID: id, status: .session, headline: workout.title,

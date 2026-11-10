@@ -21,7 +21,7 @@ struct HeavyDutyView: View {
     private var plan: HeavyDutyPlan { store.plan(runner: runner) }
     private var c25kFinished: Bool { runner.plan.nextSession == nil }
     private var effort: LiftEffort {
-        LiftEffort.on(Date(), firstSession: store.firstSession, c25kFinished: c25kFinished, options: store.options)
+        plan.effort(now: Date())
     }
 
     var body: some View {
@@ -265,6 +265,16 @@ struct HeavyDutyView: View {
                     }
                     Stepper(value: $store.options.setupMinutes, in: 0...20) {
                         settingText("Warm-up and setting up", "\(store.options.setupMinutes) min")
+                    }
+                    Divider().overlay(StrandPalette.hairline)
+                    Stepper(value: $store.wayBackOptions.firstLighterPercent, in: 0...30, step: 2.5) {
+                        settingText("After a break: first session lighter by", "\(store.wayBackOptions.firstLighterPercent.formatted())%")
+                    }
+                    Stepper(value: $store.wayBackOptions.blockLighterPercent, in: 0...30, step: 2.5) {
+                        settingText("After a longer break: lighter by", "\(store.wayBackOptions.blockLighterPercent.formatted())%")
+                    }
+                    Stepper(value: $store.wayBackOptions.repsShort, in: 0...5) {
+                        settingText("…stopping this many reps short of failure", "\(store.wayBackOptions.repsShort)")
                     }
                     Toggle(isOn: $store.options.shortOfFailureDuringC25K) {
                         settingText("Short of failure while C25K runs", nil)

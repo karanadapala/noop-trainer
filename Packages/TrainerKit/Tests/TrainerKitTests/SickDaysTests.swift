@@ -148,6 +148,53 @@ final class SickDaysTests: XCTestCase {
         XCTAssertEqual(hd.lastSession, day(1))
     }
 
+    func testTheWayBackIsPutInPlaceOncePerPlanOnItsFirstDayBack() {
+        let flu = SickEpisode(start: day(3), kind: .fever, end: day(5))
+        let plans: [any TrainingPlan] = [Plan(id: "back", last: day(2), level: .gentle), Plan(id: "lift", last: day(1))]
+        let o = SickDayOptions()
+        XCTAssertTrue(SickDays.dueWayBacks(after: flu, plans: plans, applied: [], now: day(6), options: o, calendar: cal).isEmpty)
+        let gentle = SickDays.dueWayBacks(after: flu, plans: plans, applied: [], now: day(7), options: o, calendar: cal)
+        XCTAssertEqual(gentle.map(\.planID), ["back"])
+        XCTAssertEqual(gentle.first?.record.from, cal.startOfDay(for: day(7)))
+        let both = SickDays.dueWayBacks(after: flu, plans: plans, applied: ["back"], now: day(12), options: o, calendar: cal)
+        XCTAssertEqual(both.map(\.planID), ["lift"])
+        XCTAssertEqual(both.first?.record.step, .repeatBlock, "11 days since the last lift, 2 usual: 9 missed")
+    }
+
+    func testHeavyDutyComesBackLighterThenShortOfFailure() {
+        let w = HeavyDutyWayBack()
+        XCTAssertEqual(w.adjustment(.repeatLast, sessionsSince: 0)?.lighterPercent, 10)
+        XCTAssertNil(w.adjustment(.repeatLast, sessionsSince: 1))
+        XCTAssertEqual(w.adjustment(.repeatBlock, sessionsSince: 1)?.lighterPercent, 5)
+        XCTAssertNil(w.adjustment(.carryOn, sessionsSince: 0))
+
+        let record = WayBackRecord(step: .repeatLast, from: day(10))
+        let plan = HeavyDutyPlan(options: HeavyDutyOptions(), last: [.upper: day(1)], firstSession: day(1, hour: 0).addingTimeInterval(-90 * 86400),
+                                 nextRun: nil, ranToday: false, c25kFinished: true, wayBack: record)
+        XCTAssertEqual(plan.effort(now: day(10), calendar: cal), .wayBack(repsShort: 2))
+        XCTAssertEqual(plan.wayBackLighter, 10)
+        let after = HeavyDutyPlan(options: HeavyDutyOptions(), last: [.upper: day(10)], firstSession: day(1).addingTimeInterval(-90 * 86400),
+                                  nextRun: nil, ranToday: false, c25kFinished: true, wayBack: record, sessionsSinceWayBack: 1)
+        XCTAssertEqual(after.effort(now: day(15), calendar: cal), .toFailure)
+        let stepBack = HeavyDutyPlan(options: HeavyDutyOptions(), last: [:], firstSession: day(1).addingTimeInterval(-90 * 86400),
+                                     nextRun: nil, ranToday: false, c25kFinished: true,
+                                     wayBack: WayBackRecord(step: .stepBack, from: day(10)))
+        XCTAssertEqual(stepBack.effort(now: day(12), calendar: cal), .breakIn)
+
+        let kit = Equipment(.dumbbells, lightest: 5, heaviest: 40, step: 5)
+        let s = WeightSuggestion.next(history: [LiftResult(date: day(1), weight: 30, reps: 10)], reps: RepRange(8, 12),
+                                      kit: kit, options: HeavyDutyOptions())
+        XCTAssertEqual(s.wayBack(lighterPercent: 10, kit: kit).weight, 25, "rounded down to a real step")
+    }
+
+    func testMobilityPhasesAreFourWeeksEach() {
+        XCTAssertEqual(Mobility.Phase.of(week: 1), .gentle)
+        XCTAssertEqual(Mobility.Phase.of(week: 4), .gentle)
+        XCTAssertEqual(Mobility.Phase.of(week: 5), .fuller)
+        XCTAssertEqual(Mobility.Phase.of(week: 12), .strength)
+        XCTAssertEqual(Mobility.Phase.of(week: 13), .maintain)
+    }
+
     func testStoredOptionsKeepWorkingWhenSettingsAreAdded() throws {
         let partial = Data(#"{"hardWaitDays": 5}"#.utf8)
         let o = try JSONDecoder().decode(SickDayOptions.self, from: partial)

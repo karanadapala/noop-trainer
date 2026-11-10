@@ -363,3 +363,76 @@ struct SickPauseBanner: View {
         }
     }
 }
+
+/// Every sick-day number (D220–D224, D233), in Setup.
+struct SickDaySettingsView: View {
+    @ObservedObject private var sick = SickDayStore.shared
+
+    var body: some View {
+        ScreenScaffold(title: "Sick days", subtitle: "What pauses while you're ill, and how each plan comes back.") {
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                section("While you're ill") {
+                    Toggle(isOn: $sick.options.floorOnColdDays) {
+                        label("Offer a 2-minute floor on cold days", nil)
+                    }
+                    .tint(StrandPalette.accent)
+                    stepper("Red flags after this many \"Worse\" mornings", $sick.options.redFlagsAfterWorse, 1...7)
+                    stepper("…or this many \"Same\" mornings", $sick.options.redFlagsAfterSame, 2...14)
+                    stepper("Suggest \"Back to normal\" after \"Better\" mornings", $sick.options.proposeEndAfterBetter, 1...5)
+                }
+                section("Coming back") {
+                    stepper("Easy days after fever, flu or a stomach bug", $sick.options.easyDaysAfterFeverType, 0...5)
+                    stepper("Hard sessions wait (days) after flu or COVID-19", $sick.options.hardWaitDays, 0...21)
+                    stepper("…or after being ill this many days", $sick.options.longIllnessDays, 1...14)
+                }
+                section("Days missed → the way back") {
+                    ForEach(sick.options.bands.indices, id: \.self) { i in
+                        let band = sick.options.bands[i]
+                        if let upTo = band.upToDays {
+                            Stepper(value: Binding(get: { upTo }, set: { sick.options.bands[i].upToDays = $0 }),
+                                    in: (i == 0 ? 0 : (sick.options.bands[i - 1].upToDays ?? 0) + 1)...365) {
+                                label("Up to \(upTo) days: \(Self.name(band.step))", nil)
+                            }
+                        } else {
+                            label("Longer: \(Self.name(band.step))", nil)
+                        }
+                    }
+                }
+            }
+        }
+        .fadesNavigationBarOnScroll()
+    }
+
+    static func name(_ step: WayBackStep) -> String {
+        switch step {
+        case .carryOn: return "carry on"
+        case .repeatLast: return "the last session again"
+        case .repeatBlock: return "the last block again"
+        case .stepBack: return "one block back"
+        case .restart: return "from the start"
+        }
+    }
+
+    private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).strandOverline()
+            let body = VStack(alignment: .leading, spacing: 14, content: content)
+            NoopCard(padding: 16) { body }
+        }
+    }
+
+    private func stepper(_ title: String, _ value: Binding<Int>, _ range: ClosedRange<Int>) -> some View {
+        Stepper(value: value, in: range) { label(title, "\(value.wrappedValue)") }
+    }
+
+    private func label(_ title: String, _ value: String?) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            if let value {
+                Text(value).font(StrandFont.subhead.monospacedDigit()).foregroundStyle(StrandPalette.textSecondary)
+            }
+        }
+    }
+}

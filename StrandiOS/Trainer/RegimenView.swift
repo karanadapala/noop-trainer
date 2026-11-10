@@ -4,7 +4,7 @@ import TrainerKit
 
 /// Screens the Regimen links to, pushed as values so the tab's re-tap pops them (#198).
 enum RegimenRoute: Hashable {
-    case c25k, c25kHistory, heavyDuty, backCare, mobility, goals, places, health, time
+    case c25k, c25kHistory, heavyDuty, backCare, mobility, goals, places, health, time, sickDays
 }
 
 /// The Regimen tab (D139): every active plan for today, under the goals they serve (D124). The goal
@@ -42,7 +42,7 @@ struct RegimenView: View {
                 setupSection
             }
         }
-        .onAppear { runner.applyRestartIfReady() }
+        .onAppear { runner.applyRestartIfReady(); sick.applyWayBackIfDue() }
         .task(id: session.savedSessions) { await heavyDuty.refresh(repo: repo) }
         .onAppear { backCare.updateWake(from: repo.sleeps) }
         .sheet(isPresented: $showUnwell) { UnwellSheet() }
@@ -58,6 +58,7 @@ struct RegimenView: View {
                 case .places: PlacesView()
                 case .health: HealthProfileView()
                 case .time: DayBudgetSettingsView()
+                case .sickDays: SickDaySettingsView()
                 }
             }
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
@@ -200,6 +201,8 @@ struct RegimenView: View {
                     SetupRow(title: "Health profile", detail: healthDetail, icon: "cross.case", route: .health)
                     Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
                     SetupRow(title: "Time", detail: "Getting going at each place", icon: "clock", route: .time)
+                    Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
+                    SetupRow(title: "Sick days", detail: "What pauses, and the way back", icon: "thermometer.medium", route: .sickDays)
                     Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
                     SetupRow(title: "C25K history", detail: "Change or delete any answer",
                              icon: "clock.arrow.circlepath", route: .c25kHistory)

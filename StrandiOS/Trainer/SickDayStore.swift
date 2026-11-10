@@ -147,7 +147,42 @@ final class SickDayStore: ObservableObject {
     }
 }
 
+/// A plan's store that can put a way back in place (D224). Plans without one pick up where they left off.
+@MainActor
+protocol WayBackApplying: AnyObject {
+    func applyWayBack(_ record: WayBackRecord)
+}
+
+extension SickDayStore {
+    private static let appliedKey = "trainer.sick.applied"
+
+    /// Puts each plan's way back in place on its first day back, once per plan per illness.
+    func applyWayBackIfDue(now: Date = Date()) {
+        guard let episode = episodes.last, !episode.isOn else { return }
+        let tag = "\(episode.start.timeIntervalSince1970)"
+        var applied = Set(UserDefaults.standard.stringArray(forKey: Self.appliedKey) ?? [])
+        let done = Set(applied.compactMap { $0.hasPrefix(tag + "#") ? String($0.dropFirst(tag.count + 1)) : nil })
+        let due = SickDays.dueWayBacks(after: episode, plans: ActivePlans.all(), applied: done, now: now, options: options)
+        guard !due.isEmpty else { return }
+        for (planID, record) in due {
+            ActivePlans.applier(planID)?.applyWayBack(record)
+            applied.insert(tag + "#" + planID)
+        }
+        UserDefaults.standard.set(Array(applied).sorted(), forKey: Self.appliedKey)
+    }
+}
+
 extension ActivePlans {
+    /// The store behind a plan, for the way back.
+    static func applier(_ planID: String) -> WayBackApplying? {
+        switch planID {
+        case C25KPlan.planID: return C25KRunner.shared
+        case HeavyDuty.planID: return HeavyDutyStore.shared
+        case Mobility.planID: return MobilityStore.shared
+        default: return nil
+        }
+    }
+
     /// Today across every active plan, through sick days and the strap: the one funnel for every screen.
     static func day(now: Date = Date()) -> RegimenDay { SickDayStore.shared.regimenDay(plans: all(), now: now) }
 }

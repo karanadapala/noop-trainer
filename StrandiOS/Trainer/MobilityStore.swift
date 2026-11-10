@@ -102,3 +102,18 @@ final class MobilityStore: ObservableObject {
         if let data = try? JSONEncoder().encode(value) { UserDefaults.standard.set(data, forKey: key) }
     }
 }
+
+extension MobilityStore: WayBackApplying {
+    /// Stepping back moves week 1 later by a phase (two for a restart), never past today.
+    func applyWayBack(_ record: WayBackRecord) {
+        let phases: Int
+        switch record.step {
+        case .stepBack: phases = 1
+        case .restart: phases = 2
+        case .carryOn, .repeatLast, .repeatBlock: return
+        }
+        guard let from = start else { return }
+        let moved = Calendar.current.date(byAdding: .day, value: phases * Mobility.Phase.weeks * 7, to: from) ?? from
+        start = min(moved, Calendar.current.startOfDay(for: record.from))
+    }
+}

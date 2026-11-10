@@ -591,3 +591,42 @@ final class C25KRunner: ObservableObject {
         }
     }
 }
+
+extension C25KRunner: WayBackApplying {
+    /// The way back after a break (D224). While the shin's own way back holds runs, that one decides
+    /// where running restarts (D117), so this steps aside.
+    func applyWayBack(_ record: WayBackRecord) {
+        guard !returnToRun.holdsRuns else { return }
+        switch record.step {
+        case .carryOn:
+            return
+        case .repeatLast:
+            if let key = lastRunKey { repeatSession(key: key, from: record.from) }
+        case .repeatBlock:
+            if let w = restartableWeek { restartWeek(w) }
+        case .stepBack:
+            if let w = restartableWeek {
+                restartWeek(w)
+                if w > 1 { restartWeek(w - 1) }
+            }
+        case .restart:
+            for w in (1...C25K.weeks).reversed() where C25K.all.contains(where: { $0.week == w && isCompleted($0) }) {
+                restartWeek(w)
+            }
+        }
+    }
+
+    /// The key of the latest run still counted as done ("w2d1").
+    private var lastRunKey: String? {
+        log.max { $0.value.date < $1.value.date }?.key
+    }
+
+    /// One run comes up again; the earlier one moves to the archive.
+    private func repeatSession(key: String, from: Date) {
+        if let entry = log.removeValue(forKey: key) { archive["\(key)#back\(Int(from.timeIntervalSince1970))"] = entry }
+        completed.remove(key)
+        C25KLogStore.save(log)
+        UserDefaults.standard.set(Array(completed).sorted(), forKey: Self.completedKey)
+        if let data = try? JSONEncoder().encode(archive) { UserDefaults.standard.set(data, forKey: Self.archiveKey) }
+    }
+}
