@@ -158,8 +158,35 @@ public struct HeavyDutyOptions: Codable, Equatable, Sendable {
     /// After a second stall the weight drops by this much (D75).
     public var resetPercent = 10.0
     public var acceptedSteps: [AcceptedStep] = AcceptedStep.allCases
+    /// For today's time (D235): minutes per exercise (one hard set, the setup and the walk to the next
+    /// machine), plus the warm-up and getting set up.
+    public var minutesPerExercise = 3
+    public var setupMinutes = 5
 
     public init() {}
+
+    /// Decoded key by key, so stored settings survive a new setting being added.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = HeavyDutyOptions()
+        func v<T: Decodable>(_ k: CodingKeys, _ fallback: T) throws -> T { try c.decodeIfPresent(T.self, forKey: k) ?? fallback }
+        upperReps = try v(.upperReps, d.upperReps)
+        legReps = try v(.legReps, d.legReps)
+        daysBetween = try v(.daysBetween, d.daysBetween)
+        maxGapDays = try v(.maxGapDays, d.maxGapDays)
+        breakInWeeks = try v(.breakInWeeks, d.breakInWeeks)
+        shortOfFailureDuringC25K = try v(.shortOfFailureDuringC25K, d.shortOfFailureDuringC25K)
+        restDayAfterLifting = try v(.restDayAfterLifting, d.restDayAfterLifting)
+        increasePercent = try v(.increasePercent, d.increasePercent)
+        biggestJumpPercent = try v(.biggestJumpPercent, d.biggestJumpPercent)
+        ceilingRaise = try v(.ceilingRaise, d.ceilingRaise)
+        resetPercent = try v(.resetPercent, d.resetPercent)
+        acceptedSteps = try v(.acceptedSteps, d.acceptedSteps)
+        minutesPerExercise = try v(.minutesPerExercise, d.minutesPerExercise)
+        setupMinutes = try v(.setupMinutes, d.setupMinutes)
+    }
+
+    public func minutes(exercises: Int) -> Int { exercises * minutesPerExercise + setupMinutes }
 
     public func reps(_ workout: HeavyDuty.Workout) -> RepRange { workout == .upper ? upperReps : legReps }
 }
@@ -358,6 +385,7 @@ public struct HeavyDutyPlan: TrainingPlan {
     /// Two workouts in turn, each every `daysBetween`: a lift about every half of that.
     public var usualGapDays: Int { max(options.restDayAfterLifting ? 2 : 1, options.daysBetween / 2) }
     public var intensity: SessionIntensity { .hard }
+    public var placeID: String? { place }
 
     public func wayBack(_ step: WayBackStep) -> String {
         let w = wayBackOptions
@@ -385,10 +413,12 @@ public struct HeavyDutyPlan: TrainingPlan {
     /// Holds that stop all lifting (a back flare, D104).
     public let liftHolds: [String]
     public let wayBackOptions: HeavyDutyWayBack
+    public let place: String?
 
     public init(options: HeavyDutyOptions, last: [HeavyDuty.Workout: Date], firstSession: Date?, nextRun: Date?,
                 ranToday: Bool, c25kFinished: Bool, legHolds: [String] = [], skipped: Date? = nil,
-                liftHolds: [String] = [], wayBackOptions: HeavyDutyWayBack = HeavyDutyWayBack()) {
+                liftHolds: [String] = [], wayBackOptions: HeavyDutyWayBack = HeavyDutyWayBack(), place: String? = nil) {
+        self.place = place
         self.wayBackOptions = wayBackOptions
         self.skipped = skipped
         self.liftHolds = liftHolds
@@ -441,9 +471,10 @@ public struct HeavyDutyPlan: TrainingPlan {
         let effort = LiftEffort.on(now, firstSession: firstSession, c25kFinished: c25kFinished, options: options,
                                    calendar: calendar)
         let count = HeavyDuty.exercises(workout, c25kFinished: c25kFinished).count
+        let minutes = options.minutes(exercises: count)
         return PlanToday(planID: id, status: .session, headline: workout.title,
-                         detail: "\(count) exercises, one working set each · \(effort.label)",
-                         minutes: workout == .upper ? 25 : 12, works: workout.works)
+                         detail: "About \(minutes) min · \(count) exercises, one working set each · \(effort.label)",
+                         minutes: minutes, works: workout.works)
     }
 
     private func restReason(now: Date, calendar: Calendar) -> String {

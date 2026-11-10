@@ -219,6 +219,7 @@ public struct MobilityPlan: TrainingPlan {
     public var schedule: PlanSchedule { .rotation(minRestDays: 0, maxGapDays: 2) }
     public var lastSession: Date? { (log.map(\.date) + tests.map(\.date)).max() }
     public var intensity: SessionIntensity { .gentle }
+    public var placeID: String? { place }
 
     public func wayBack(_ step: WayBackStep) -> String {
         switch step {
@@ -237,9 +238,12 @@ public struct MobilityPlan: TrainingPlan {
     public let liftDone: Bool
     public let wake: Date?
     public let tests: [MobilityTestResult]
+    public let place: String
 
     public init(options: MobilityOptions, start: Date, log: [MobilityLog], pain: [PainEntry], shinCleared: Bool,
-                liftToday: HeavyDuty.Workout?, liftDone: Bool, wake: Date?, tests: [MobilityTestResult] = []) {
+                liftToday: HeavyDuty.Workout?, liftDone: Bool, wake: Date?, tests: [MobilityTestResult] = [],
+                place: String = "home") {
+        self.place = place
         self.tests = tests
         self.options = options
         self.start = start
@@ -262,10 +266,11 @@ public struct MobilityPlan: TrainingPlan {
         Mobility.week(start: start, pain: pain, now: now, calendar: calendar)
     }
 
-    public func next(now: Date, calendar: Calendar = .current) -> Next {
+    /// `ignoringWake`: what comes once the first hour awake is over.
+    public func next(now: Date, calendar: Calendar = .current, ignoringWake: Bool = false) -> Next {
         if log.contains(where: { calendar.isDate($0.date, inSameDayAs: now) })
             || tests.contains(where: { calendar.isDate($0.date, inSameDayAs: now) }) { return .done }
-        if let wake, calendar.isDate(wake, inSameDayAs: now) {
+        if !ignoringWake, let wake, calendar.isDate(wake, inSameDayAs: now) {
             let from = wake.addingTimeInterval(TimeInterval(options.minutesAfterWaking * 60))
             if now < from { return .later(from) }
         }
@@ -311,10 +316,16 @@ public struct MobilityPlan: TrainingPlan {
                              minutes: r.estimatedMinutes, works: [.legs, .back])
         case .afterLifts(let lift):
             return PlanToday(planID: id, status: .rest, headline: "After the lifts",
-                             detail: "Long holds go after training: a short session once \(lift.title) is done.")
+                             detail: "Long holds go after training: a short session once \(lift.title) is done.",
+                             minutes: routine(for: .short, now: now, calendar: calendar).estimatedMinutes, laterToday: true)
         case .later(let from):
+            var minutes: Int?
+            if case .session(let s) = next(now: now, calendar: calendar, ignoringWake: true) {
+                minutes = routine(for: s, now: now, calendar: calendar).estimatedMinutes
+            }
             return PlanToday(planID: id, status: .rest, headline: "Later today",
-                             detail: "Not in the first hour after waking: from \(from.formatted(date: .omitted, time: .shortened)).")
+                             detail: "Not in the first hour after waking: from \(from.formatted(date: .omitted, time: .shortened)).",
+                             minutes: minutes, laterToday: minutes != nil)
         case .done:
             return PlanToday(planID: id, status: .done, headline: "Done for today", detail: "Mobility done.")
         }

@@ -4,7 +4,7 @@ import TrainerKit
 
 /// Screens the Regimen links to, pushed as values so the tab's re-tap pops them (#198).
 enum RegimenRoute: Hashable {
-    case c25k, c25kHistory, heavyDuty, backCare, mobility, goals, places, health
+    case c25k, c25kHistory, heavyDuty, backCare, mobility, goals, places, health, time
 }
 
 /// The Regimen tab (D139): every active plan for today, under the goals they serve (D124). The goal
@@ -19,6 +19,7 @@ struct RegimenView: View {
     @ObservedObject private var backCare = BackCareStore.shared
     @ObservedObject private var mobility = MobilityStore.shared
     @ObservedObject private var sick = SickDayStore.shared
+    @ObservedObject private var budgetStore = DayBudgetStore.shared
     @State private var showUnwell = false
 
     /// The active plans, the main goal's plan first (D86: it wins a clash).
@@ -29,6 +30,7 @@ struct RegimenView: View {
         ScreenScaffold(title: "Regimen", subtitle: "Every plan, one day at a time.") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
                 GoalRail(goals: Goal.shown(chosen: store.goals, plans: plans), plans: plans, day: day)
+                DayBudgetBanner(budget: ActivePlans.budget())
                 IllnessCards(plans: plans)
                 if let flare = BackFlare.current(entries: runner.pain, now: Date()) { BackFlareCard(flare: flare) }
                 if sick.current == nil {
@@ -55,6 +57,7 @@ struct RegimenView: View {
                 case .goals: GoalsView()
                 case .places: PlacesView()
                 case .health: HealthProfileView()
+                case .time: DayBudgetSettingsView()
                 }
             }
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
@@ -195,6 +198,8 @@ struct RegimenView: View {
                     SetupRow(title: "Places", detail: placesDetail, icon: "mappin.and.ellipse", route: .places)
                     Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
                     SetupRow(title: "Health profile", detail: healthDetail, icon: "cross.case", route: .health)
+                    Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
+                    SetupRow(title: "Time", detail: "Getting going at each place", icon: "clock", route: .time)
                     Divider().overlay(StrandPalette.hairline).padding(.leading, 56)
                     SetupRow(title: "C25K history", detail: "Change or delete any answer",
                              icon: "clock.arrow.circlepath", route: .c25kHistory)
@@ -408,6 +413,12 @@ struct RegimenTodayCard: View {
                                 .foregroundStyle(StrandPalette.textSecondary)
                                 .lineLimit(2)
                                 .multilineTextAlignment(.leading)
+                        }
+                        let budget = ActivePlans.budget()
+                        if !budget.clear {
+                            Text("Today: about \(DayBudget.spoken(budget.minutes)) · keep \(DayBudget.spoken(budget.keepFree)) free")
+                                .font(StrandFont.caption.weight(.semibold))
+                                .foregroundStyle(StrandPalette.effortColor)
                         }
                     } else {
                         Text(day.plans.contains { $0.status == .done } ? "Done for today" : "A rest day: nothing due")

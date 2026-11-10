@@ -40,9 +40,13 @@ public struct PlanToday: Equatable, Sendable {
     public let minutes: Int?
     /// What today's session works hard (empty on rest days).
     public let works: Set<Muscle>
+    /// Not yet, but still today (after the first hour awake, after the lifts): it counts towards today's
+    /// time (D235).
+    public let laterToday: Bool
 
     public init(planID: String, status: Status, headline: String, detail: String, minutes: Int? = nil,
-                works: Set<Muscle> = []) {
+                works: Set<Muscle> = [], laterToday: Bool = false) {
+        self.laterToday = laterToday
         self.planID = planID
         self.status = status
         self.headline = headline
@@ -74,6 +78,8 @@ public protocol TrainingPlan: Sendable {
     func sickFloor(now: Date, calendar: Calendar) -> PlanToday?
     /// What a way-back step means for this plan, in words ("Week 2 again").
     func wayBack(_ step: WayBackStep) -> String
+    /// Where its sessions happen (a Places id), for the time it takes to get going there (D230).
+    var placeID: String? { get }
 }
 
 public extension TrainingPlan {
@@ -91,6 +97,8 @@ public extension TrainingPlan {
     var intensity: SessionIntensity { .hard }
 
     func sickFloor(now: Date, calendar: Calendar) -> PlanToday? { nil }
+
+    var placeID: String? { nil }
 
     func wayBack(_ step: WayBackStep) -> String {
         switch step {
@@ -146,6 +154,7 @@ public struct C25KPlan: TrainingPlan {
     public var schedule: PlanSchedule { .fixedWeeks(weeks: C25K.weeks, perWeek: C25K.daysPerWeek) }
     public var lastSession: Date? { lastRun }
     public var intensity: SessionIntensity { .moderate }
+    public var placeID: String? { "outdoors" }
 
     public func wayBack(_ step: WayBackStep) -> String {
         let label = nextSession.map { "Week \($0.week) · Day \($0.day)" } ?? "the last run"

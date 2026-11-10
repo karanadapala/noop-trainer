@@ -66,7 +66,7 @@ final class HeavyDutyStore: ObservableObject {
         return HeavyDutyPlan(options: options, last: last, firstSession: firstSession, nextRun: nextRun,
                              ranToday: ranToday, c25kFinished: finished,
                              legHolds: runner.painState.holds.map(\.reason), skipped: skipped,
-                             liftHolds: runner.painState.holds.filter { $0.area == .back }.map(\.reason))
+                             liftHolds: runner.painState.holds.filter { $0.area == .back }.map(\.reason), place: placeID)
     }
 
     /// Today's workout for the plans that fit around lifting (Back care, Mobility): done today, or due.

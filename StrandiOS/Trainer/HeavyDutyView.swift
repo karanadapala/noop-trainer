@@ -260,6 +260,12 @@ struct HeavyDutyView: View {
                     Stepper(value: $store.options.daysBetween, in: 2...10) {
                         settingText("Days between the same workout", "\(store.options.daysBetween)")
                     }
+                    Stepper(value: $store.options.minutesPerExercise, in: 1...10) {
+                        settingText("Minutes per exercise, for today's time", "\(store.options.minutesPerExercise)")
+                    }
+                    Stepper(value: $store.options.setupMinutes, in: 0...20) {
+                        settingText("Warm-up and setting up", "\(store.options.setupMinutes) min")
+                    }
                     Toggle(isOn: $store.options.shortOfFailureDuringC25K) {
                         settingText("Short of failure while C25K runs", nil)
                     }

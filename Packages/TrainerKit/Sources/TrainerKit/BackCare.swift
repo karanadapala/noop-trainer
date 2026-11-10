@@ -133,6 +133,7 @@ public struct BackCarePlan: TrainingPlan {
     public var schedule: PlanSchedule { .rotation(minRestDays: 0, maxGapDays: 2) }
     public var lastSession: Date? { log.map(\.date).max() }
     public var intensity: SessionIntensity { .gentle }
+    public var placeID: String? { place }
 
     /// The 2-minute floor (D221): one round of the Big 3, shorter holds.
     public func sickFloor(now: Date, calendar: Calendar) -> PlanToday? {
@@ -158,9 +159,12 @@ public struct BackCarePlan: TrainingPlan {
     public let wake: Date?
     /// A back flare is on (D104): the Big 3 only, and only if it doesn't bring symptoms on.
     public let flare: Bool
+    /// Where Core A happens (Core B goes with the lifts).
+    public let place: String
 
     public init(options: BackCareOptions, log: [BackCareLog], levels: [String: Stage], lastLevelChange: Date?,
-                liftToday: HeavyDuty.Workout?, liftDone: Bool, wake: Date?, flare: Bool = false) {
+                liftToday: HeavyDuty.Workout?, liftDone: Bool, wake: Date?, flare: Bool = false, place: String = "home") {
+        self.place = place
         self.flare = flare
         self.options = options
         self.log = log
@@ -179,11 +183,12 @@ public struct BackCarePlan: TrainingPlan {
         case done
     }
 
-    public func next(now: Date, calendar: Calendar = .current) -> Next {
+    /// `ignoringWake`: what comes once the first hour awake is over.
+    public func next(now: Date, calendar: Calendar = .current, ignoringWake: Bool = false) -> Next {
         let today = log.filter { calendar.isDate($0.date, inSameDayAs: now) }
         let didA = today.contains { $0.session == .coreA || $0.session == .warmUp }
         let didB = today.contains { $0.session == .coreB }
-        if let wake, calendar.isDate(wake, inSameDayAs: now), !didA || (liftDone && !didB) {
+        if !ignoringWake, let wake, calendar.isDate(wake, inSameDayAs: now), !didA || (liftDone && !didB) {
             let from = wake.addingTimeInterval(TimeInterval(options.minutesAfterWaking * 60))
             if now < from { return .later(from) }
         }
@@ -197,22 +202,32 @@ public struct BackCarePlan: TrainingPlan {
     }
 
     public func today(now: Date, calendar: Calendar = .current) -> PlanToday {
-        switch next(now: now, calendar: calendar) {
+        today(now: now, calendar: calendar, showing: next(now: now, calendar: calendar))
+    }
+
+    private func today(now: Date, calendar: Calendar, showing: Next) -> PlanToday {
+        switch showing {
         case .coreA:
             let m = BackCare.coreA(levels: levels).estimatedMinutes
             return PlanToday(planID: id, status: .session, headline: "Big 3",
                              detail: flare ? "Back flare: only if it doesn't bring symptoms on. Stop at the first twinge."
                                  : "Curl-up, side plank, bird dog · about \(m) min", minutes: m, works: [.core])
         case .warmUp(let w):
+            // Today's time counts both: the warm-up now and Core B after the lifts.
+            let warm = BackCare.coreA(levels: levels, warmUp: true).estimatedMinutes
+            let b = BackCare.coreB(levels: levels, workout: w).estimatedMinutes
             return PlanToday(planID: id, status: .session, headline: "Warm-up before \(w.title)",
-                             detail: "One short Big 3 set each, then Core B after the lifts", minutes: 3, works: [.core])
+                             detail: "One short Big 3 set each (about \(warm) min), then Core B after the lifts (about \(b) min)",
+                             minutes: warm + b, works: [.core])
         case .coreB(let w):
             let m = BackCare.coreB(levels: levels, workout: w).estimatedMinutes
             return PlanToday(planID: id, status: .session, headline: "Core B",
                              detail: "After the lifts · about \(m) min", minutes: m, works: [.core])
         case .later(let from):
+            let then = today(now: now, calendar: calendar, showing: next(now: now, calendar: calendar, ignoringWake: true))
             return PlanToday(planID: id, status: .rest, headline: "Later today",
-                             detail: "Not in the first hour after waking: from \(from.formatted(date: .omitted, time: .shortened)).")
+                             detail: "Not in the first hour after waking: from \(from.formatted(date: .omitted, time: .shortened)).",
+                             minutes: then.minutes, works: then.works, laterToday: then.status == .session)
         case .done:
             return PlanToday(planID: id, status: .done, headline: "Done for today", detail: "Back care done.")
         }
